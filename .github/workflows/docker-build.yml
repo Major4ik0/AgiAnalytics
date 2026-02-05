@@ -24,53 +24,40 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller    
-    # - name: Build with PyInstaller
-    #   run: |
-    #     # Проверяем наличие необходимых файлов
-    #     if (!(Test-Path "main.py")) { throw "main.py not found!" }
-    #     if (!(Test-Path "app.ui")) { Write-Host "Warning: app.ui not found" }
-        
-    #     # Собираем приложение
-    #     pyinstaller `
-    #       --onefile `
-    #       --windowed `
-    #       --name="AgiAnalytics" `
-    #       --icon="icon.ico" `
-    #       --add-data="app.ui;." `
-    #       --hidden-import=PyQt6 `
-    #       --hidden-import=PyQt6.QtCore `
-    #       --hidden-import=PyQt6.QtGui `
-    #       --hidden-import=PyQt6.QtWidgets `
-    #       --hidden-import=pandas `
-    #       --hidden-import=numpy `
-    #       --hidden-import=openpyxl `
-    #       --hidden-import=matplotlib `
-    #       --clean `
-    #       --noconfirm `
-    #       main.py
-        
-    #     # Проверяем результат
-    #     if (Test-Path "dist\AgiAnalytics.exe") {
-    #       $size = (Get-Item "dist\AgiAnalytics.exe").Length
-    #       Write-Host "✅ Build successful! File size: $size bytes"
-    #     } else {
-    #       Write-Error "❌ Build failed - executable not found"
-    #       exit 1
-    #     }
-
-    - name: Install Nuitka
-      run: pip install nuitka
-    
-    - name: Build with Nuitka
+    - name: Build with PyInstaller
       run: |
-        python -m nuitka `
+        # Проверяем наличие необходимых файлов
+        if (!(Test-Path "main.py")) { throw "main.py not found!" }
+        if (!(Test-Path "app.ui")) { Write-Host "Warning: app.ui not found" }
+        
+        # Собираем приложение
+        pyinstaller `
           --onefile `
-          --windows-console-mode=disable `
-          --include-qt-plugins=sensible,styles `
-          --plugin-enable=pyqt6 `
-          --windows-icon-from-ico=icon.ico `
-          --output-filename=AgiAnalytics.exe `
+          --windowed `
+          --name="AgiAnalytics" `
+          --icon="icon.ico" `
+          --add-data="app.ui;." `
+          --hidden-import=PyQt6 `
+          --hidden-import=PyQt6.QtCore `
+          --hidden-import=PyQt6.QtGui `
+          --hidden-import=PyQt6.QtWidgets `
+          --hidden-import=pandas `
+          --hidden-import=numpy `
+          --hidden-import=openpyxl `
+          --hidden-import=matplotlib `
+          --clean `
+          --noconfirm `
           main.py
+        
+        # Проверяем результат
+        if (Test-Path "dist\AgiAnalytics.exe") {
+          $size = (Get-Item "dist\AgiAnalytics.exe").Length
+          Write-Host "✅ Build successful! File size: $size bytes"
+        } else {
+          Write-Error "❌ Build failed - executable not found"
+          exit 1
+        }
+
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
