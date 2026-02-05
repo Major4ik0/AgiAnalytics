@@ -25,41 +25,56 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
     
-    - name: Create icon if not exists
+    - name: Create icon if missing
       run: |
+        # Проверяем наличие иконки
         if (!(Test-Path "icon.ico")) {
-          # Создаем простую иконку используя PowerShell
-          $bitmap = New-Object System.Drawing.Bitmap(64, 64)
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.Clear([System.Drawing.Color]::FromArgb(0, 120, 215))
-          $font = New-Object System.Drawing.Font("Arial", 24, [System.Drawing.FontStyle]::Bold)
-          $brush = [System.Drawing.Brushes]::White
-          $graphics.DrawString("AG", $font, $brush, 10, 15)
-          $graphics.Dispose()
+          Write-Host "Creating placeholder icon..."
+          # Используем PowerShell для создания простой иконки
+          $iconPath = "icon.ico"
           
-          # Сохраняем как иконку
-          $stream = New-Object System.IO.MemoryStream
-          $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
-          $icon.Save($stream)
-          [System.IO.File]::WriteAllBytes("icon.ico", $stream.ToArray())
-          $stream.Dispose()
-          $icon.Dispose()
-          $bitmap.Dispose()
+          # Создаем временный BMP файл и конвертируем в ICO
+          # Это простой способ, можно использовать сторонние инструменты
+          $null = New-Item -ItemType File -Path $iconPath -Force
+          
+          # Вместо реальной иконки создаем заглушку
+          # В продакшене используйте реальную иконку
+          $iconContent = @"
+Это заглушка для иконки. В реальном проекте добавьте файл icon.ico
+"@
+          
+          Set-Content -Path "icon_note.txt" -Value $iconContent
+          
+          # Скачиваем простую иконку из интернета
+          $iconUrl = "https://raw.githubusercontent.com/PKief/vscode-material-icon-theme/main/icons/file-type-python.svg"
+          # Или создаем через ImageMagick если установлен
+          # Для простоты просто создадим пустой файл
         }
     
     - name: Build with PyInstaller
       run: |
-        # Создаем временный spec файл
-        $specContent = @"
+        # Создаем spec файл
+        $specContent = @'
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+from pathlib import Path
+
+# Получаем абсолютный путь к иконке
+icon_path = 'icon.ico' if Path('icon.ico').exists() else None
+
+# Собираем данные
+datas = []
+if Path('app.ui').exists():
+    datas.append(('app.ui', '.'))
+
+if icon_path:
+    datas.append((icon_path, '.'))
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('app.ui', '.'),
-        ('icon.ico', '.'),
-    ],
+    datas=datas,
     hiddenimports=[
         'PyQt6',
         'PyQt6.QtCore',
@@ -71,6 +86,12 @@ a = Analysis(
         'openpyxl',
         'sqlite3',
         'matplotlib.backends.backend_qtagg',
+        'matplotlib.backends.backend_qt5agg',
+        'matplotlib',
+        'matplotlib.pyplot',
+        'matplotlib.figure',
+        'scipy',  # если используется
+        'scipy.special._ufuncs_cxx',
     ],
     hookspath=[],
     hooksconfig={},
@@ -81,7 +102,9 @@ a = Analysis(
     cipher=None,
     noarchive=False,
 )
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -93,19 +116,31 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    icon='icon.ico'
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=icon_path,
 )
-"@
+'@
         
+        # Сохраняем spec файл
         $specContent | Out-File -FilePath "agianalytics.spec" -Encoding UTF8
         
         # Запускаем сборку
         pyinstaller agianalytics.spec
+        
+        # Проверяем результат
+        if (Test-Path "dist/AgiAnalytics.exe") {
+            Write-Host "Build successful! File size:" (Get-Item "dist/AgiAnalytics.exe").Length "bytes"
+        } else {
+            Write-Host "Build failed!"
+            Exit 1
+        }
     
     - name: Upload artifact
       uses: actions/upload-artifact@v3
