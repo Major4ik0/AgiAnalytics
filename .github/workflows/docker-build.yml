@@ -3,6 +3,8 @@ name: Build Windows Executable
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -10,34 +12,55 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.14'
+        python-version: '3.12'  # Используйте 3.10, 3.11 или 3.12
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
-    
-    - name: Create simple icon
-      run: |
-        # Просто создаем пустой файл иконки если его нет
-        if (!(Test-Path "icon.ico")) {
-          echo "Placeholder icon" > icon_note.txt
-          echo "In production, add a real icon.ico file" >> icon_note.txt
-        }
-    
+        pip install pyinstaller    
     - name: Build with PyInstaller
       run: |
-        # Простая команда сборки
-        pyinstaller --onefile --windowed --name=AgiAnalytics --icon=icon.ico --add-data="app.ui;." main.py
+        # Проверяем наличие необходимых файлов
+        if (!(Test-Path "main.py")) { throw "main.py not found!" }
+        if (!(Test-Path "app.ui")) { Write-Host "Warning: app.ui not found" }
+        
+        # Собираем приложение
+        pyinstaller `
+          --onefile `
+          --windowed `
+          --name="AgiAnalytics" `
+          --icon="icon.ico" `
+          --add-data="app.ui;." `
+          --hidden-import=PyQt6 `
+          --hidden-import=PyQt6.QtCore `
+          --hidden-import=PyQt6.QtGui `
+          --hidden-import=PyQt6.QtWidgets `
+          --hidden-import=pandas `
+          --hidden-import=numpy `
+          --hidden-import=openpyxl `
+          --hidden-import=matplotlib `
+          --clean `
+          --noconfirm `
+          main.py
+        
+        # Проверяем результат
+        if (Test-Path "dist\AgiAnalytics.exe") {
+          $size = (Get-Item "dist\AgiAnalytics.exe").Length
+          Write-Host "✅ Build successful! File size: $size bytes"
+        } else {
+          Write-Error "❌ Build failed - executable not found"
+          exit 1
+        }
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: AgiAnalytics-Windows
         path: dist/AgiAnalytics.exe
+        retention-days: 7
