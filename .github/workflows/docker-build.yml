@@ -2,8 +2,7 @@ name: Build Windows Executable
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -16,8 +15,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
-        architecture: 'x64'
+        python-version: '3.14'
     
     - name: Install dependencies
       run: |
@@ -25,122 +23,18 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
     
-    - name: Create icon if missing
+    - name: Create simple icon
       run: |
-        # Проверяем наличие иконки
+        # Просто создаем пустой файл иконки если его нет
         if (!(Test-Path "icon.ico")) {
-          Write-Host "Creating placeholder icon..."
-          # Используем PowerShell для создания простой иконки
-          $iconPath = "icon.ico"
-          
-          # Создаем временный BMP файл и конвертируем в ICO
-          # Это простой способ, можно использовать сторонние инструменты
-          $null = New-Item -ItemType File -Path $iconPath -Force
-          
-          # Вместо реальной иконки создаем заглушку
-          # В продакшене используйте реальную иконку
-          $iconContent = @"
-Это заглушка для иконки. В реальном проекте добавьте файл icon.ico
-"@
-          
-          Set-Content -Path "icon_note.txt" -Value $iconContent
-          
-          # Скачиваем простую иконку из интернета
-          $iconUrl = "https://raw.githubusercontent.com/PKief/vscode-material-icon-theme/main/icons/file-type-python.svg"
-          # Или создаем через ImageMagick если установлен
-          # Для простоты просто создадим пустой файл
+          echo "Placeholder icon" > icon_note.txt
+          echo "In production, add a real icon.ico file" >> icon_note.txt
         }
     
     - name: Build with PyInstaller
       run: |
-        # Создаем spec файл
-        $specContent = @'
-# -*- mode: python ; coding: utf-8 -*-
-import sys
-from pathlib import Path
-
-# Получаем абсолютный путь к иконке
-icon_path = 'icon.ico' if Path('icon.ico').exists() else None
-
-# Собираем данные
-datas = []
-if Path('app.ui').exists():
-    datas.append(('app.ui', '.'))
-
-if icon_path:
-    datas.append((icon_path, '.'))
-
-a = Analysis(
-    ['main.py'],
-    pathex=[],
-    binaries=[],
-    datas=datas,
-    hiddenimports=[
-        'PyQt6',
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        'PyQt6.QtWidgets',
-        'PyQt6.QtPrintSupport',
-        'pandas',
-        'numpy',
-        'openpyxl',
-        'sqlite3',
-        'matplotlib.backends.backend_qtagg',
-        'matplotlib.backends.backend_qt5agg',
-        'matplotlib',
-        'matplotlib.pyplot',
-        'matplotlib.figure',
-        'scipy',  # если используется
-        'scipy.special._ufuncs_cxx',
-    ],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=None,
-    noarchive=False,
-)
-
-pyz = PYZ(a.pure, a.zipped_data, cipher=None)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name='AgiAnalytics',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=icon_path,
-)
-'@
-        
-        # Сохраняем spec файл
-        $specContent | Out-File -FilePath "agianalytics.spec" -Encoding UTF8
-        
-        # Запускаем сборку
-        pyinstaller agianalytics.spec
-        
-        # Проверяем результат
-        if (Test-Path "dist/AgiAnalytics.exe") {
-            Write-Host "Build successful! File size:" (Get-Item "dist/AgiAnalytics.exe").Length "bytes"
-        } else {
-            Write-Host "Build failed!"
-            Exit 1
-        }
+        # Простая команда сборки
+        pyinstaller --onefile --windowed --name=AgiAnalytics --icon=icon.ico --add-data="app.ui;." main.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v3
