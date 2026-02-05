@@ -1,24 +1,36 @@
-FROM python:3.10-slim
+FROM python:3.10
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости для PyQt
+# Для Windows сборки лучше использовать wine
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    make \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
+    wine64 \
+    mingw-w64 \
+    gcc-mingw-w64-x86-64 \
+    g++-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
 
+# Настраиваем wine
+ENV WINEPREFIX=/root/.wine
+ENV WINEARCH=win64
+RUN wine wineboot --init
+
 # Копируем файлы проекта
-COPY . .
+COPY requirements.txt .
+COPY *.py ./
+COPY *.ui ./
 
-# Устанавливаем зависимости Python
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install pyinstaller
+# Устанавливаем Python зависимости в wine
+RUN wine python -m pip install --upgrade pip
+RUN wine python -m pip install pyinstaller PyQt6 pandas openpyxl
 
-# Собираем exe файл
-RUN pyinstaller --onefile --windowed --name=AgiAnalytics  --icon="icon.ico" main.py
+# Создаем сборку
+RUN wine python -m PyInstaller \
+    --onefile \
+    --windowed \
+    --name="AgiAnalytics" \
+    --icon=icon.ico \
+    main.py
 
-# Результирующий файл будет в /app/dist/AgiAnalytics.exe
+# Копируем результат
+RUN mkdir -p /output && cp /root/.wine/drive_c/users/root/AppData/Local/Programs/Python/Python310/dist/AgiAnalytics.exe /output/
