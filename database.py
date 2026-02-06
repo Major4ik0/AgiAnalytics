@@ -193,6 +193,173 @@ class Database:
             ''', (user_id,))
         return cursor.fetchall()
 
+    def import_from_excel(self, file_path, user_id, password=None, selected_sheets=None):
+        """Импорт данных из Excel файла с паролем и выбором листов"""
+        try:
+            # Проверка пароля (если предоставлен)
+            if password:
+                cursor = self.conn.cursor()
+                cursor.execute('SELECT password FROM users WHERE id = ?', (user_id,))
+                user_record = cursor.fetchone()
+
+                if not user_record or user_record['password'] != password:
+                    return False, "Неверный пароль"
+
+            # Чтение всех листов
+            try:
+                # Пробуем разные движки для чтения Excel
+                try:
+                    xls = pd.ExcelFile(file_path, engine='openpyxl')
+                except:
+                    try:
+                        xls = pd.ExcelFile(file_path, engine='xlrd')
+                    except:
+                        xls = pd.ExcelFile(file_path)  # Пусть pandas сам выберет движок
+
+                imported_count = 0
+                duplicate_count = 0
+                skipped_count = 0
+                available_sheets = xls.sheet_names
+
+                # Если не указаны листы для импорта, используем все листы с "курс"
+                if not selected_sheets:
+                    selected_sheets = [sheet for sheet in available_sheets if 'курс' in sheet.lower()]
+                else:
+                    # Фильтруем только те листы, которые есть в файле
+                    selected_sheets = [sheet for sheet in selected_sheets if sheet in available_sheets]
+
+                if not selected_sheets:
+                    return False, "Нет подходящих листов для импорта. Ожидаются листы с названиями, содержащими 'курс'"
+
+                for sheet_name in selected_sheets:
+                    try:
+                        # Читаем лист
+                        df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+
+                        # Определяем курс из названия листа
+                        course_from_sheet = '1 курс'  # по умолчанию
+                        for course_num in ['1', '2', '3', '4', '5']:
+                            if f'{course_num} курс' in sheet_name.lower():
+                                course_from_sheet = f'{course_num} курс'
+                                break
+                            elif f'курс {course_num}' in sheet_name.lower():
+                                course_from_sheet = f'{course_num} курс'
+                                break
+
+                        # Преобразование данных
+                        for index, row in df.iterrows():
+                            try:
+                                # Пропускаем пустые строки
+                                if row.isnull().all():
+                                    continue
+
+                                # Ищем ФИО абитуриента
+                                applicant_name = ''
+                                for col in df.columns:
+                                    col_str = str(col)
+                                    if 'абитуриент' in col_str.lower() and pd.notna(row[col]):
+                                        applicant_name = str(row[col])
+                                        break
+
+                                if not applicant_name.strip():
+                                    skipped_count += 1
+                                    continue
+
+                                # Собираем данные
+                                applicant_data = {
+                                    'study_group': self._get_value_from_row(row, df,
+                                                                            ['уч.гр.', 'Уч. группа', 'учебная группа']),
+                                    'rank': self._get_value_from_row(row, df, ['В.зв', 'Звание', 'воинское звание'],
+                                                                     'ряд.'),
+                                    'student_name': self._get_value_from_row(row, df,
+                                                                             ['ФИО', 'ФИО студента', 'Студент']),
+                                    'region': self._get_value_from_row(row, df, ['Субъект РФ', 'Регион', 'область']),
+                                    'city': self._get_value_from_row(row, df, ['Населённый пункт', 'Город', 'город']),
+                                    'category': self._get_value_from_row(row, df, ['категория', 'Категория', 'пол'],
+                                                                         'муж'),
+                                    'applicant_name': applicant_name,
+                                    'phone': self._get_value_from_row(row, df,
+                                                                      ['Телефон', 'телефон', 'контактный телефон']),
+                                    'status': self._get_value_from_row(row, df,
+                                                                       ['Статус', 'статус', 'Статус поступления'],
+                                                                       '1)поступает'),
+                                    'document_status': self._get_value_from_row(row, df,
+                                                                                ['Состояние личного дела на поступление',
+                                                                                 'Документы', 'документы']),
+                                    'notes': self._get_value_from_row(row, df,
+                                                                      ['Примечание', 'примечание', 'комментарий']),
+                                    'course': course_from_sheet,
+                                    'faculty': self._get_value_from_row(row, df, ['Факультет', 'факультет',
+                                                                                  'Факультет/отделение'])
+                                }
+
+                                # Проверка на дубликат
+                                if self.check_duplicate_applicant(user_id, applicant_data):
+                                    duplicate_count += 1
+                                    continue
+
+                                self.add_applicant(user_id, applicant_data)
+                                imported_count += 1
+
+                            except Exception as e:
+                                print(f"Ошибка в строке {index + 2} листа {sheet_name}: {e}")
+                                skipped_count += 1
+                                continue
+
+                    except Exception as e:
+                        print(f"Ошибка импорта листа {sheet_name}: {e}")
+                        continue
+
+                result_message = f"""
+                Импорт завершен!
+                Всего импортировано: {imported_count}
+                Пропущено дубликатов: {duplicate_count}
+                Пропущено других ошибок: {skipped_count}
+                Листы: {', '.join(selected_sheets)}
+                """
+
+                return True, result_message
+
+            except Exception as e:
+                return False, f"Ошибка чтения файла Excel: {str(e)}"
+
+        except Exception as e:
+            print(f"Общая ошибка импорта: {e}")
+            return False, f"Ошибка импорта: {str(e)}"
+
+    def check_duplicate_applicant(self, user_id, applicant_data):
+        """Проверка на дубликат абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM applicants 
+            WHERE created_by = ? 
+            AND applicant_name = ?
+            AND phone = ?
+            AND course = ?
+        ''', (user_id, applicant_data['applicant_name'],
+              applicant_data['phone'], applicant_data['course']))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+    def _get_value_from_row(self, row, df, possible_columns, default=''):
+        """Получение значения из строки по возможным названиям колонок"""
+        for col in possible_columns:
+            if col in df.columns:
+                value = row[col]
+                if pd.notna(value):
+                    return str(value).strip()
+
+        # Если не нашли в точных совпадениях, ищем частичные
+        for df_col in df.columns:
+            df_col_str = str(df_col)
+            for possible in possible_columns:
+                if possible.lower() in df_col_str.lower():
+                    value = row[df_col]
+                    if pd.notna(value):
+                        return str(value).strip()
+
+        return default
+
     def update_applicant(self, applicant_id, data):
         """Обновление данных абитуриента"""
         cursor = self.conn.cursor()

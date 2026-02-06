@@ -1,4 +1,4 @@
-name: Build Multi-Platform Executable
+name: Build Windows Executable
 
 on:
   push:
@@ -7,14 +7,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  PYINSTALLER_VERSION: "5.13.0"
+  DEVELOPER: "Алексей Журавлев"
+
 jobs:
-  # Сборка для Windows
   build-windows:
     strategy:
       matrix:
-        python-version: ['3.8', '3.10']
-        architecture: ['x86', 'x64']
-        include:
+        config:
           - python-version: '3.8'
             architecture: 'x86'
             windows-version: '7'
@@ -33,28 +34,175 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup Python ${{ matrix.python-version }} (${{ matrix.architecture }})
+    - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-        architecture: ${{ matrix.architecture }}
+        python-version: ${{ matrix.config.python-version }}
+        architecture: ${{ matrix.config.architecture }}
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller==5.13.0
+        python -m pip install --upgrade pip setuptools wheel
+        pip install PyQt5==5.15.10
+        pip install PyQt5-sip==12.13.0
+        pip install pandas==1.5.3
+        pip install openpyxl==3.1.2
+        pip install pyinstaller==${{ env.PYINSTALLER_VERSION }}
+        pip install pywin32==306
+        pip install numpy==1.24.3
+        
+        if ("${{ matrix.config.windows-version }}" -eq "7") {
+          pip install "numpy<1.24" --force-reinstall
+          pip install "pandas<2.0" --force-reinstall
+        }
 
-    - name: Build executable for Windows
+    - name: Create runtime hook
       run: |
-        # Для Windows 7 используем дополнительные флаги
+        $runtime_hook = @'
+import os
+import sys
+import ctypes
+from pathlib import Path
+
+def fix_windows_dll_issues():
+    if sys.platform != 'win32':
+        return
+
+    try:
+        import platform
+        win_info = platform.win32_ver()
+
+        if win_info[0] == '7':
+            print("Windows 7 обнаружена")
+
+            if hasattr(sys, '_MEIPASS'):
+                base_path = Path(sys._MEIPASS)
+                dll_paths = [
+                    base_path / 'dll_includes',
+                    base_path,
+                    base_path.parent / 'dll_includes'
+                ]
+
+                for dll_path in dll_paths:
+                    if dll_path.exists():
+                        dll_path_str = str(dll_path)
+                        if dll_path_str not in os.environ['PATH']:
+                            os.environ['PATH'] = dll_path_str + ';' + os.environ['PATH']
+
+                critical_dlls = [
+                    'api-ms-win-core-path-l1-1-0.dll',
+                    'vcruntime140.dll',
+                    'vcruntime140_1.dll',
+                    'msvcp140.dll',
+                    'msvcp140_1.dll',
+                    'msvcp140_2.dll',
+                    'concrt140.dll'
+                ]
+
+                for dll_name in critical_dlls:
+                    try:
+                        for dll_path in dll_paths:
+                            dll_file = dll_path / dll_name
+                            if dll_file.exists():
+                                ctypes.CDLL(str(dll_file))
+                                break
+                    except Exception:
+                        pass
+
+        if hasattr(sys, '_MEIPASS'):
+            sys.path.insert(0, sys._MEIPASS)
+
+    except Exception as e:
+        print(f"Ошибка в runtime hook: {e}")
+
+if __name__ == '__main__':
+    fix_windows_dll_issues()
+'@
+        $runtime_hook | Out-File -FilePath "runtime_hook.py" -Encoding UTF8
+
+    - name: Download VC Redist for Windows 7
+      if: matrix.config.windows-version == '7'
+      run: |
+        if ("${{ matrix.config.architecture }}" -eq "x86") {
+            $vc_arch = "x86"
+        } else {
+            $vc_arch = "x64"
+        }
+        $vc_redist_url = "https://aka.ms/vs/17/release/vc_redist.$vc_arch.exe"
+        Invoke-WebRequest -Uri $vc_redist_url -OutFile "vc_redist_$vc_arch.exe"
+
+    - name: Collect required DLLs for Windows 7
+      if: matrix.config.windows-version == '7'
+      run: |
+        New-Item -ItemType Directory -Force -Path "dll_includes"
+        
+        $critical_dlls = @(
+          "api-ms-win-core-path-l1-1-0.dll",
+          "vcruntime140.dll",
+          "vcruntime140_1.dll",
+          "msvcp140.dll",
+          "msvcp140_1.dll",
+          "msvcp140_2.dll",
+          "concrt140.dll",
+          "vcomp140.dll"
+        )
+        
+        $system_paths = @(
+          "C:\Windows\System32",
+          "C:\Windows\SysWOW64"
+        )
+        
+        foreach ($dll in $critical_dlls) {
+          foreach ($path in $system_paths) {
+            $full_path = Join-Path $path $dll
+            if (Test-Path $full_path) {
+              Copy-Item -Path $full_path -Destination "dll_includes\$dll" -Force
+              break
+            }
+          }
+        }
+        
+        $install_bat = @'
+@echo off
+echo Установка DLL для Windows 7
+echo.
+setlocal enabledelayedexpansion
+if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
+    set "SYS_PATH=%SystemRoot%\SysWOW64"
+) else (
+    set "SYS_PATH=%SystemRoot%\System32"
+)
+for %%f in (*.dll) do (
+    echo Копирование %%f...
+    copy "%%f" "%SYS_PATH%\" >nul 2>&1
+)
+echo.
+echo Готово
+pause
+'@
+        $install_bat | Out-File -FilePath "dll_includes\install_dlls.bat" -Encoding ASCII
+        
+        $readme_content = '# DLL для Windows 7'
+        $readme_content | Out-File -FilePath "dll_includes\README_DLL.txt" -Encoding UTF8
+
+    - name: Test PyQt5
+      run: |
+        python -c "import PyQt5; from PyQt5 import QtCore, QtGui, QtWidgets; print('PyQt5 OK')"
+
+    - name: Build executable
+      run: |
+        $exe_name = "AgiAnalytics_Win${{ matrix.config.windows-version }}_${{ matrix.config.architecture }}"
         $pyinstaller_args = @(
           "--onefile",
           "--windowed",
-          "--name=AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}",
+          "--name=$exe_name",
           "--clean",
           "--noconfirm",
           "--distpath=dist",
+          "--workpath=build",
+          "--noupx",
+          "--win-private-assemblies",
+          "--win-no-prefer-redirects",
           "--hidden-import=PyQt5",
           "--hidden-import=PyQt5.QtCore",
           "--hidden-import=PyQt5.QtGui",
@@ -67,391 +215,164 @@ jobs:
           "--add-data=statistics_widget.py;."
         )
         
-        # Для Windows 7 отключаем UPX и добавляем специальные флаги
-        if ("${{ matrix.windows-version }}" -eq "7") {
-          $pyinstaller_args += @("--noupx", "--disable-windowed-traceback")
+        if ("${{ matrix.config.windows-version }}" -eq "7") {
+          $pyinstaller_args += "--disable-windowed-traceback"
+          $pyinstaller_args += "--runtime-hook=runtime_hook.py"
+          if (Test-Path "dll_includes") {
+            $pyinstaller_args += "--add-data=dll_includes;dll_includes"
+          }
         }
         
-        # Добавляем иконку если есть
         if (Test-Path "icon.ico") {
-          $pyinstaller_args += @("--icon=icon.ico")
+          $pyinstaller_args += "--icon=icon.ico"
         }
         
-        # Добавляем основной файл
-        $pyinstaller_args += @("main.py")
+        $pyinstaller_args += "main.py"
         
-        Write-Host "Сборка с параметрами: $pyinstaller_args"
         pyinstaller @pyinstaller_args
         
-        # Проверяем результат
-        $exe_path = "dist/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe"
+        $exe_path = "dist\$exe_name.exe"
         if (Test-Path $exe_path) {
           $size = (Get-Item $exe_path).Length
-          Write-Host "✅ Windows build successful! File: $exe_path"
-          Write-Host "📏 File size: $size bytes"
+          $size_mb = [math]::Round($size / 1MB, 2)
+          Write-Host "Сборка успешна: $exe_path ($size_mb MB)"
         } else {
-          Write-Error "❌ Windows build failed - executable not found"
+          Write-Error "Сборка не удалась"
           exit 1
         }
 
-    - name: Upload Windows artifact
+    - name: Create package
+      run: |
+        $win_version = "${{ matrix.config.windows-version }}"
+        $arch = "${{ matrix.config.architecture }}"
+        $exe_name = "AgiAnalytics_Win${win_version}_${arch}"
+        $package_name = "${exe_name}_Package"
+        
+        New-Item -ItemType Directory -Force -Path $package_name
+        Copy-Item -Path "dist\${exe_name}.exe" -Destination "${package_name}\${exe_name}.exe"
+        
+        if ($win_version -eq "7") {
+          if (Test-Path "dll_includes") {
+            Copy-Item -Path "dll_includes" -Destination "${package_name}\" -Recurse
+          }
+          
+          if ($arch -eq "x86") {
+            $vc_file = "vc_redist_x86.exe"
+          } else {
+            $vc_file = "vc_redist_x64.exe"
+          }
+          
+          if (Test-Path $vc_file) {
+            Copy-Item -Path $vc_file -Destination "${package_name}\vc_redist.exe"
+          }
+        }
+        
+        $readme_content = @"
+# AgiAnalytics для Windows $win_version ($arch)
+
+Разработчик: ${{ env.DEVELOPER }}
+Версия: ${{ github.run_number }}
+Дата: $(Get-Date -Format 'yyyy-MM-dd')
+
+## Установка:
+1. Запустите ${exe_name}.exe
+2. Для Windows 7: установите DLL через install_dlls.bat
+
+## Требования:
+- Windows $win_version SP1 или новее
+- .NET Framework 4.5+
+- 2 ГБ ОЗУ
+"@
+        $readme_content | Out-File -FilePath "${package_name}\README.txt" -Encoding UTF8
+        
+        $zip_name = "${package_name}.zip"
+        Compress-Archive -Path "${package_name}\*" -DestinationPath $zip_name -Force
+        
+        Copy-Item -Path "dist\${exe_name}.exe" -Destination "${exe_name}.exe"
+    
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: AgiAnalytics-Win${{ matrix.windows-version }}-${{ matrix.architecture }}
-        path: dist/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe
-        retention-days: 30
-
-  # Сборка для macOS
-  build-macos:
-    runs-on: macos-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies for macOS
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller==5.13.0
-        
-        # Устанавливаем зависимости для PyQt5 на macOS
-        brew install qt@5
-
-    - name: Build for macOS
-      run: |
-        # Для macOS используем специальные настройки
-        pyinstaller \
-          --onefile \
-          --windowed \
-          --name=AgiAnalytics_macOS \
-          --clean \
-          --noconfirm \
-          --distpath=dist_mac \
-          --hidden-import=PyQt5 \
-          --hidden-import=PyQt5.QtCore \
-          --hidden-import=PyQt5.QtGui \
-          --hidden-import=PyQt5.QtWidgets \
-          --hidden-import=pandas \
-          --hidden-import=numpy \
-          --hidden-import=openpyxl \
-          --hidden-import=sqlite3 \
-          --add-data="database.py:." \
-          --add-data="statistics_widget.py:." \
-          main.py
-        
-        # Проверяем результат
-        if [ -f "dist_mac/AgiAnalytics_macOS" ]; then
-          echo "✅ macOS build successful!"
-          ls -la dist_mac/
-        else
-          echo "❌ macOS build failed"
-          exit 1
-        fi
-
-    - name: Create macOS app bundle
-      run: |
-        # Создаем структуру .app для macOS
-        mkdir -p "AgiAnalytics.app/Contents/MacOS"
-        mkdir -p "AgiAnalytics.app/Contents/Resources"
-        
-        # Копируем исполняемый файл
-        cp dist_mac/AgiAnalytics_macOS "AgiAnalytics.app/Contents/MacOS/AgiAnalytics"
-        chmod +x "AgiAnalytics.app/Contents/MacOS/AgiAnalytics"
-        
-        # Создаем Info.plist
-        cat > "AgiAnalytics.app/Contents/Info.plist" << EOF
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleName</key>
-            <string>AgiAnalytics</string>
-            <key>CFBundleDisplayName</key>
-            <string>AgiAnalytics</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.agiana.analytics</string>
-            <key>CFBundleVersion</key>
-            <string>1.0.0</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleSignature</key>
-            <string>????</string>
-            <key>CFBundleExecutable</key>
-            <string>AgiAnalytics</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>10.13</string>
-        </dict>
-        </plist>
-        EOF
-        
-        # Добавляем иконку если есть
-        if [ -f "icon.icns" ]; then
-          cp icon.icns "AgiAnalytics.app/Contents/Resources/"
-          echo "    <key>CFBundleIconFile</key>" >> "AgiAnalytics.app/Contents/Info.plist"
-          echo "    <string>icon.icns</string>" >> "AgiAnalytics.app/Contents/Info.plist"
-        fi
-        
-        echo "</dict></plist>" >> "AgiAnalytics.app/Contents/Info.plist"
-        
-        echo "✅ macOS app bundle created"
-        ls -la AgiAnalytics.app/
-
-    - name: Compress macOS app
-      run: |
-        # Создаем архив с приложением
-        tar -czf AgiAnalytics_macOS.tar.gz AgiAnalytics.app/
-        echo "✅ macOS archive created"
-        ls -la AgiAnalytics_macOS.tar.gz
-
-    - name: Upload macOS artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: AgiAnalytics-macOS
+        name: AgiAnalytics-Win${{ matrix.config.windows-version }}-${{ matrix.config.architecture }}
         path: |
-          AgiAnalytics_macOS.tar.gz
-          dist_mac/AgiAnalytics_macOS
-        retention-days: 30
+          $exe_name.exe
+          $zip_name
 
-  # Создание релиза со всеми файлами
+    - name: Cleanup
+      run: |
+        Remove-Item -Path "build", "__pycache__", "dist", "*.spec" -Recurse -Force -ErrorAction SilentlyContinue
+
   create-release:
-    needs: [build-windows, build-macos]
+    needs: build-windows
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     permissions:
       contents: write
 
     steps:
-    - name: Download Windows 7 x86 artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: AgiAnalytics-Win7-x86
-        path: release_files/Windows7
-
-    - name: Download Windows 7 x64 artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: AgiAnalytics-Win7-x64
-        path: release_files/Windows7
-
-    - name: Download Windows 10 x86 artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: AgiAnalytics-Win10-x86
-        path: release_files/Windows10
-
-    - name: Download Windows 10 x64 artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: AgiAnalytics-Win10-x64
-        path: release_files/Windows10
-
-    - name: Download macOS artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: AgiAnalytics-macOS
-        path: release_files/macOS
-
-    - name: List downloaded files
+    - name: Download artifacts
       run: |
-        echo "📁 Все скачанные файлы:"
-        find release_files -type f | while read file; do
-          echo "  - $file"
-          ls -la "$file"
+        mkdir -p release_files
+        for version in 7 10; do
+          for arch in x86 x64; do
+            gh run download ${{ github.run_id }} -n "AgiAnalytics-Win${version}-${arch}" -D "release_files/Windows${version}" 2>/dev/null || true
+          done
         done
 
-    - name: Create README files
+    - name: Create release files
       run: |
-        # README для Windows
-        cat > release_files/README_Windows.txt << 'EOF'
-        AgiAnalytics для Windows
-        
-        Доступные версии:
-        
-        1. Windows 7:
-           - AgiAnalytics_Win7_x86.exe: 32-битная версия для Windows 7
-           - AgiAnalytics_Win7_x64.exe: 64-битная версия для Windows 7
-        
-        2. Windows 10/11:
-           - AgiAnalytics_Win10_x86.exe: 32-битная версия для Windows 10/11
-           - AgiAnalytics_Win10_x64.exe: 64-битная версия для Windows 10/11
-        
-        Системные требования для Windows:
-        - Windows 7 SP1 или новее
-        - .NET Framework 4.5 (для Windows 7)
-        - 2 ГБ ОЗУ
-        - 100 МБ свободного места
-        
-        Инструкция по установке:
-        1. Выберите версию для вашей системы
-        2. Скачайте соответствующий .exe файл
-        3. Запустите файл
-        
-        При возникновении проблем:
-        - Установите Visual C++ Redistributable для Visual Studio 2015-2022
-        - Запустите от имени администратора
-        EOF
-        
-        # README для macOS
-        cat > release_files/README_macOS.txt << 'EOF'
-        AgiAnalytics для macOS
-        
-        Файлы:
-        - AgiAnalytics_macOS.tar.gz: Архив с приложением
-        - AgiAnalytics_macOS: Исполняемый файл
-        
-        Системные требования для macOS:
-        - macOS 10.13 (High Sierra) или новее
-        - 2 ГБ ОЗУ
-        - 100 МБ свободного места
-        
-        Инструкция по установке:
-        1. Распакуйте архив AgiAnalytics_macOS.tar.gz
-        2. Перетащите AgiAnalytics.app в папку "Программы"
-        3. При первом запуске может потребоваться разрешить запуск
-           в "Системные настройки" → "Защита и безопасность"
-        
-        Примечание: Приложение не подписано, поэтому может потребоваться
-        разрешение на запуск в настройках безопасности.
-        EOF
-        
-        # Общий README
-        cat > release_files/README.md << 'EOF'
-        # AgiAnalytics - приложение для отслеживания абитуриентов
-        
-        ## Платформы
-        
-        ### 🪟 Windows
-        - **Windows 7** (32-bit и 64-bit)
-        - **Windows 10/11** (32-bit и 64-bit)
-        
-        ### 🍎 macOS
-        - **macOS 10.13+** (64-bit)
-        
-        ## 📦 Версии в релизе
-        
-        ### Windows:
-        ```
-        Windows7/
-        ├── AgiAnalytics_Win7_x86.exe
-        └── AgiAnalytics_Win7_x64.exe
-        
-        Windows10/
-        ├── AgiAnalytics_Win10_x86.exe
-        └── AgiAnalytics_Win10_x64.exe
-        ```
-        
-        ### macOS:
-        ```
-        macOS/
-        ├── AgiAnalytics_macOS.tar.gz
-        └── README_macOS.txt
-        ```
-        
-        ## 📋 Системные требования
-        
-        ### Windows:
-        - Windows 7 SP1 или новее
-        - .NET Framework 4.5 (для Windows 7)
-        - 2 ГБ ОЗУ
-        - 100 МБ свободного места
-        
-        ### macOS:
-        - macOS 10.13 (High Sierra) или новее
-        - 2 ГБ ОЗУ
-        - 100 МБ свободного места
-        
-        ## 🔧 Сборка
-        - Номер сборки: ${{ github.run_number }}
-        - Дата: $(date +%Y-%m-%d)
-        EOF
-
-    - name: Create release archives
-      run: |
-        # Создаем отдельные архивы для каждой платформы
         cd release_files
-        
-        # Архив для Windows
-        tar -czf ../AgiAnalytics_Windows_All.tar.gz Windows7/ Windows10/ README_Windows.txt
-        
-        # Архив для macOS
-        tar -czf ../AgiAnalytics_macOS.tar.gz macOS/ README_macOS.txt
-        
-        # Полный архив (все платформы)
-        tar -czf ../AgiAnalytics_All_Platforms.tar.gz ./
-        
-        cd ..
-        
-        echo "✅ Архивы созданы:"
-        echo "  - AgiAnalytics_Windows_All.tar.gz (только Windows)"
-        echo "  - AgiAnalytics_macOS.tar.gz (только macOS)"
-        echo "  - AgiAnalytics_All_Platforms.tar.gz (все платформы)"
-        
-        ls -la *.tar.gz
+        cat > README.md << 'EOF'
+# AgiAnalytics
+Разработчик: Алексей Журавлев
+Версия: ${{ github.run_number }}
 
-    - name: Create GitHub Release
+## Windows 7
+- AgiAnalytics_Win7_x86.exe
+- AgiAnalytics_Win7_x64.exe
+
+## Windows 10
+- AgiAnalytics_Win10_x86.exe
+- AgiAnalytics_Win10_x64.exe
+EOF
+        
+        if [ -d "Windows7" ] || [ -d "Windows10" ]; then
+          tar -czf ../AgiAnalytics_Windows_All.tar.gz Windows*/ README.md
+        fi
+        
+        for version in 7 10; do
+          if [ -d "Windows${version}" ]; then
+            tar -czf ../AgiAnalytics_Windows_${version}.tar.gz "Windows${version}/" README.md
+          fi
+        done
+    
+    - name: Create release
       uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         files: |
           AgiAnalytics_Windows_All.tar.gz
-          AgiAnalytics_macOS.tar.gz
-          AgiAnalytics_All_Platforms.tar.gz
+          AgiAnalytics_Windows_7.tar.gz
+          AgiAnalytics_Windows_10.tar.gz
         tag_name: v${{ github.run_number }}
-        name: Release v${{ github.run_number }}
+        name: AgiAnalytics v${{ github.run_number }}
         body: |
           # AgiAnalytics v${{ github.run_number }}
           
-          ## 🎉 Мультиплатформенный релиз
+          Разработчик: Алексей Журавлев
           
-          ### 🪟 Windows
-          - **Windows 7** (32-bit и 64-bit)
-          - **Windows 10/11** (32-bit и 64-bit)
+          ## Windows версии:
+          - Windows 7 (x86/x64)
+          - Windows 10 (x86/x64)
           
-          ### 🍎 macOS
-          - **macOS 10.13+** (64-bit)
+          ## Архивы:
+          1. AgiAnalytics_Windows_All.tar.gz - все версии
+          2. AgiAnalytics_Windows_7.tar.gz - только Windows 7
+          3. AgiAnalytics_Windows_10.tar.gz - только Windows 10
           
-          ## 📦 Архивы
-          
-          | Архив | Содержание | Размер |
-          |-------|------------|--------|
-          | `AgiAnalytics_Windows_All.tar.gz` | Все версии для Windows | $(stat -c%s AgiAnalytics_Windows_All.tar.gz) байт |
-          | `AgiAnalytics_macOS.tar.gz` | Версия для macOS | $(stat -c%s AgiAnalytics_macOS.tar.gz) байт |
-          | `AgiAnalytics_All_Platforms.tar.gz` | Все платформы | $(stat -c%s AgiAnalytics_All_Platforms.tar.gz) байт |
-          
-          ## 📋 Системные требования
-          
-          ### Windows:
-          - Windows 7 SP1 или новее
-          - .NET Framework 4.5 (рекомендуется для Windows 7)
-          - 2 ГБ ОЗУ
-          - 100 МБ свободного места
-          
-          ### macOS:
-          - macOS 10.13 (High Sierra) или новее
-          - 2 ГБ ОЗУ
-          - 100 МБ свободного места
-          
-          ## 🚀 Инструкция
-          
-          1. **Для Windows:** Скачайте `AgiAnalytics_Windows_All.tar.gz`, распакуйте и выберите версию для вашей системы
-          2. **Для macOS:** Скачайте `AgiAnalytics_macOS.tar.gz`, распакуйте и запустите приложение
-          3. **Все платформы:** Скачайте `AgiAnalytics_All_Platforms.tar.gz` если нужны все версии
-          
-          ## ⚠️ Важные замечания
-          
-          - **Windows:** Антивирус может запросить разрешение на запуск
-          - **macOS:** При первом запуске может потребоваться разрешить запуск в настройках безопасности
-          - **Windows 7:** Могут потребоваться обновления Visual C++ Redistributable
-          
-          ## 🔧 Информация о сборке
-          - Номер сборки: ${{ github.run_number }}
-          - Дата: ${{ github.event.head_commit.timestamp }}
-          - Коммит: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          GitHub: ${{ github.repository }}
+          Коммит: ${{ github.sha }}
         draft: false
         prerelease: false

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
+
+import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -7,7 +9,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGroupBox, QTabWidget, QDialog, QDialogButtonBox,
                              QFormLayout, QTextEdit, QDateEdit, QSpinBox,
                              QFileDialog, QToolBar, QStatusBar, QMenuBar, QMenu,
-                             QScrollArea, QAction, QInputDialog, QCheckBox)
+                             QScrollArea, QAction, QInputDialog, QCheckBox, QProgressDialog)  # Добавлен QProgressDialog
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
 from datetime import datetime
@@ -128,14 +130,14 @@ class ApplicantDialog(QDialog):
         self.phone = QLineEdit()
 
         self.status = QComboBox()
-        self.status.addItems(['поступает', 'не поступает'])
+        self.status.addItems(['1)поступает', '2)не поступает'])
 
         self.document_status = QComboBox()
         self.document_status.addItems([
             '',
-            'Формируется в военкомате',
-            'Отправлено в ВА ВКО',
-            'В ВА ВКО'
+            '1)Формируется в военкомате',
+            '2)Отправлено в ВА ВКО',
+            '3)В ВА ВКО'
         ])
 
         self.notes = QTextEdit()
@@ -170,7 +172,7 @@ class ApplicantDialog(QDialog):
             self.category.setCurrentText(self.applicant_data.get('category', 'муж'))
             self.applicant_name.setText(self.applicant_data.get('applicant_name', ''))
             self.phone.setText(self.applicant_data.get('phone', ''))
-            self.status.setCurrentText(self.applicant_data.get('status', 'поступает'))
+            self.status.setCurrentText(self.applicant_data.get('status', '1)поступает'))
             self.document_status.setCurrentText(self.applicant_data.get('document_status', ''))
             self.course.setCurrentText(self.applicant_data.get('course', '1 курс'))
             # self.faculty.setText(self.applicant_data.get('faculty', ''))
@@ -357,6 +359,135 @@ class PermissionDialog(QDialog):
             data['faculty'] = self.faculty.text().strip()
 
         return data
+
+
+class ImportDialog(QDialog):
+    """Диалог для импорта данных с паролем и выбором листов"""
+
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.setModal(True)
+        self.setWindowTitle('Импорт данных из Excel')
+        self.setFixedSize(500, 400)
+        self.sheet_checkboxes = []  # Инициализируем здесь
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Информация о файле
+        file_info = QLabel(f"Файл: {os.path.basename(self.file_path)}")
+        file_info.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        layout.addWidget(file_info)
+
+        # Пароль для Excel файла (если требуется)
+        excel_password_layout = QHBoxLayout()
+        excel_password_label = QLabel("Пароль Excel файла (если требуется):")
+        self.excel_password_input = QLineEdit()
+        self.excel_password_input.setPlaceholderText('Оставьте пустым, если файл не защищен')
+        self.excel_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        excel_password_layout.addWidget(excel_password_label)
+        excel_password_layout.addWidget(self.excel_password_input)
+        layout.addLayout(excel_password_layout)
+
+        # Доступные листы
+        try:
+            # Пробуем прочитать файл без пароля
+            available_sheets = []
+            try:
+                # Пробуем открыть без пароля
+                xls = pd.ExcelFile(self.file_path, engine='openpyxl')
+                available_sheets = xls.sheet_names
+            except:
+                # Если не получилось, файл может быть защищен
+                available_sheets = ["Файл защищен паролем. Введите пароль выше."]
+
+            sheets_label = QLabel("Выберите листы для импорта:")
+            sheets_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+            layout.addWidget(sheets_label)
+
+            # Создаем чекбоксы для каждого листа
+            self.sheet_checkboxes = []
+            sheet_container = QWidget()
+            sheet_layout = QVBoxLayout(sheet_container)
+
+            for sheet in available_sheets:
+                checkbox = QCheckBox(sheet)
+                # Автоматически выбираем листы с "курс"
+                if 'курс' in sheet.lower():
+                    checkbox.setChecked(True)
+                self.sheet_checkboxes.append(checkbox)
+                sheet_layout.addWidget(checkbox)
+
+            # Добавляем прокрутку если листов много
+            if len(available_sheets) > 5:
+                scroll_area = QScrollArea()
+                scroll_area.setWidgetResizable(True)
+                scroll_area.setWidget(sheet_container)
+                scroll_area.setMaximumHeight(150)
+                layout.addWidget(scroll_area)
+            else:
+                layout.addWidget(sheet_container)
+
+            # Кнопки выбора всех/очистки
+            button_layout = QHBoxLayout()
+            select_all_btn = QPushButton('Выбрать все')
+            select_all_btn.clicked.connect(self.select_all_sheets)
+            clear_all_btn = QPushButton('Очистить все')
+            clear_all_btn.clicked.connect(self.clear_all_sheets)
+            button_layout.addWidget(select_all_btn)
+            button_layout.addWidget(clear_all_btn)
+            button_layout.addStretch()
+            layout.addLayout(button_layout)
+
+        except Exception as e:
+            error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
+            error_label.setStyleSheet("color: #e74c3c;")
+            layout.addWidget(error_label)
+
+        # Информация
+        info_label = QLabel("""
+        ⚠️ При импорте:
+        • Проверяются дубликаты (по ФИО и телефону)
+        • Существующие данные не будут перезаписаны
+        • Пустые строки игнорируются
+        """)
+        info_label.setStyleSheet("color: #e67e22; font-size: 12px; margin-top: 10px;")
+        layout.addWidget(info_label)
+
+        layout.addStretch()
+
+        # Кнопки
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        layout.addWidget(button_box)
+        self.setLayout(layout)
+
+    def select_all_sheets(self):
+        """Выбрать все листы"""
+        for checkbox in self.sheet_checkboxes:
+            checkbox.setChecked(True)
+
+    def clear_all_sheets(self):
+        """Очистить все выборы"""
+        for checkbox in self.sheet_checkboxes:
+            checkbox.setChecked(False)
+
+    def get_excel_password(self):
+        return self.excel_password_input.text().strip()
+
+    def get_selected_sheets(self):
+        """Получить список выбранных листов"""
+        # Возвращаем только если есть чекбоксы
+        if hasattr(self, 'sheet_checkboxes'):
+            return [checkbox.text() for checkbox in self.sheet_checkboxes if checkbox.isChecked()]
+        return []
 
 
 class MainWindow(QMainWindow):
@@ -570,7 +701,7 @@ class MainWindow(QMainWindow):
             'ID', 'Логин', 'ФИО', 'Роль', 'Курс',
         ])
 
-        # Настройка таблицы
+        # Настройка таблица
         self.users_table.horizontalHeader().setStretchLastSection(True)
         self.users_table.setAlternatingRowColors(True)
         self.users_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -940,18 +1071,238 @@ class MainWindow(QMainWindow):
 
     def import_from_excel(self):
         """Импорт данных из Excel файла"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, 'Выберите Excel файл', '',
-            'Excel Files (*.xlsx *.xls);;All Files (*)'
-        )
+        try:
+            # Выбор файла
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, 'Выберите Excel файл', '',
+                'Excel Files (*.xlsx *.xls *.xlsm);;All Files (*)'
+            )
 
-        if file_path:
-            if self.db.import_from_excel(file_path, self.user_data['id']):
-                QMessageBox.information(self, 'Успех', 'Данные успешно импортированы!')
-                self.refresh_data()
-                self.stats_tab.update_statistics()
-            else:
-                QMessageBox.critical(self, 'Ошибка', 'Ошибка при импорте данных!')
+            if not file_path:
+                return
+
+            # Проверка расширения файла
+            if not file_path.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+                QMessageBox.warning(self, 'Ошибка', 'Пожалуйста, выберите файл Excel (.xlsx, .xls, .xlsm)')
+                return
+
+            # Показываем диалог выбора листов
+            dialog = ImportDialog(file_path, self)
+            if dialog.exec():
+                excel_password = dialog.get_excel_password()
+                selected_sheets = dialog.get_selected_sheets()
+
+                if not selected_sheets:
+                    QMessageBox.warning(self, 'Ошибка', 'Выберите хотя бы один лист для импорта!')
+                    return
+
+                # Показываем прогресс
+                progress = QProgressDialog("Импорт данных...", "Отмена", 0, 0, self)
+                progress.setWindowTitle("Импорт")
+                progress.setWindowModality(Qt.WindowModality.WindowModal)
+                progress.show()
+
+                # Обновляем интерфейс
+                QApplication.processEvents()
+
+                try:
+                    # Импортируем данные (без проверки пароля пользователя)
+                    success, message = self.import_excel_data(
+                        file_path,
+                        excel_password,
+                        selected_sheets
+                    )
+
+                    progress.close()
+
+                    if success:
+                        QMessageBox.information(self, 'Успех', message)
+                        # Обновляем данные
+                        self.refresh_data()
+                        self.stats_tab.update_statistics()
+                    else:
+                        QMessageBox.critical(self, 'Ошибка импорта', message)
+
+                except Exception as e:
+                    progress.close()
+                    QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
+
+        except Exception as e:
+            QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
+
+    def import_excel_data(self, file_path, excel_password, selected_sheets):
+        """Импорт данных из Excel файла"""
+        try:
+            # Если указан пароль Excel, пробуем расшифровать
+            temp_file = None
+            if excel_password:
+                try:
+                    # Создаем временный файл для расшифрованного содержимого
+                    import msoffcrypto
+                    import io
+                    import tempfile
+
+                    # Открываем зашифрованный файл
+                    with open(file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+
+                        # Пробуем расшифровать
+                        office_file.load_key(password=excel_password)
+
+                        # Создаем временный файл
+                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        office_file.decrypt(temp_file)
+                        temp_file.close()
+
+                        # Используем расшифрованный файл
+                        file_path = temp_file.name
+
+                except Exception as e:
+                    return False, f"Неверный пароль Excel файла или ошибка расшифровки: {str(e)}"
+
+            try:
+                # Читаем Excel файл
+                engine = 'openpyxl' if file_path.endswith('.xlsx') else 'xlrd'
+                xls = pd.ExcelFile(file_path, engine=engine)
+
+                imported_count = 0
+                duplicate_count = 0
+                skipped_count = 0
+
+                # Проверяем доступные листы
+                available_sheets = xls.sheet_names
+                for sheet in selected_sheets:
+                    if sheet not in available_sheets:
+                        return False, f"Лист '{sheet}' не найден в файле"
+
+                for sheet_name in selected_sheets:
+                    try:
+                        # Читаем лист
+                        df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+
+                        # Определяем курс из названия листа
+                        course_from_sheet = '1 курс'
+                        for course_num in ['1', '2', '3', '4', '5']:
+                            if f'{course_num} курс' in sheet_name.lower():
+                                course_from_sheet = f'{course_num} курс'
+                                break
+
+                        # Импортируем данные
+                        for index, row in df.iterrows():
+                            # Пропускаем пустые строки
+                            if row.isnull().all():
+                                continue
+
+                            # Получаем данные
+                            applicant_data = self.extract_applicant_data(row, df, course_from_sheet)
+
+                            if applicant_data:
+                                # Проверяем дубликат
+                                if self.check_duplicate(applicant_data):
+                                    duplicate_count += 1
+                                    continue
+
+                                # Добавляем в базу
+                                self.db.add_applicant(self.user_data['id'], applicant_data)
+                                imported_count += 1
+                            else:
+                                skipped_count += 1
+
+                    except Exception as e:
+                        print(f"Ошибка импорта листа {sheet_name}: {e}")
+                        continue
+
+                # Удаляем временный файл если был создан
+                if temp_file and os.path.exists(temp_file.name):
+                    os.unlink(temp_file.name)
+
+                result_message = f"""
+                Импорт завершен!
+                Всего импортировано: {imported_count}
+                Пропущено дубликатов: {duplicate_count}
+                Пропущено других ошибок: {skipped_count}
+                Листы: {', '.join(selected_sheets)}
+                """
+
+                return True, result_message
+
+            except Exception as e:
+                if temp_file and os.path.exists(temp_file.name):
+                    os.unlink(temp_file.name)
+                return False, f"Ошибка чтения Excel файла: {str(e)}"
+
+        except Exception as e:
+            return False, f"Ошибка импорта: {str(e)}"
+
+    def extract_applicant_data(self, row, df, course):
+        """Извлечение данных абитуриента из строки Excel"""
+        try:
+            # Ищем ФИО абитуриента
+            applicant_name = ''
+            for col in df.columns:
+                col_str = str(col)
+                if 'абитуриент' in col_str.lower():
+                    value = row[col]
+                    if pd.notna(value):
+                        applicant_name = str(value).strip()
+                        break
+
+            if not applicant_name:
+                return None
+
+            # Собираем данные
+            applicant_data = {
+                'study_group': self._get_cell_value(row, df, ['уч.гр.', 'Уч. группа', 'учебная группа']),
+                'rank': self._get_cell_value(row, df, ['В.зв', 'Звание', 'воинское звание'], 'ряд.'),
+                'student_name': self._get_cell_value(row, df, ['ФИО', 'ФИО студента', 'Студент']),
+                'region': self._get_cell_value(row, df, ['Субъект РФ', 'Регион', 'область']),
+                'city': self._get_cell_value(row, df, ['Населённый пункт', 'Город', 'город']),
+                'category': self._get_cell_value(row, df, ['категория', 'Категория', 'пол'], 'муж'),
+                'applicant_name': applicant_name,
+                'phone': self._get_cell_value(row, df, ['Телефон', 'телефон', 'контактный телефон']),
+                'status': self._get_cell_value(row, df, ['Статус', 'статус', 'Статус поступления'], '1)поступает'),
+                'document_status': self._get_cell_value(row, df, ['Состояние личного дела на поступление', 'Документы',
+                                                                  'документы']),
+                'notes': self._get_cell_value(row, df, ['Примечание', 'примечание', 'комментарий']),
+                'course': course,
+                'faculty': self._get_cell_value(row, df, ['Факультет', 'факультет', 'Факультет/отделение'])
+            }
+
+            return applicant_data
+
+        except Exception as e:
+            print(f"Ошибка извлечения данных: {e}")
+            return None
+
+    def _get_cell_value(self, row, df, possible_columns, default=''):
+        """Получение значения ячейки из возможных колонок"""
+        for col in possible_columns:
+            if col in df.columns:
+                value = row[col]
+                if pd.notna(value):
+                    return str(value).strip()
+        return default
+
+    def check_duplicate(self, applicant_data):
+        """Проверка на дубликат"""
+        cursor = self.db.conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM applicants 
+            WHERE created_by = ? 
+            AND applicant_name = ?
+            AND phone = ?
+            AND course = ?
+        ''', (self.user_data['id'], applicant_data['applicant_name'],
+              applicant_data['phone'], applicant_data['course']))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+    def _get_cell_value(self, row, possible_columns, default=''):
+        """Получение значения ячейки из возможных колонок"""
+        for col in possible_columns:
+            if col in row and pd.notna(row[col]):
+                return str(row[col]).strip()
+        return default
 
     def export_data(self):
         """Экспорт данных"""
