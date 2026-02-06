@@ -25,93 +25,71 @@ jobs:
             arch: 'x64'
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-          architecture: ${{ matrix.arch }}
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python }}
+        architecture: ${{ matrix.arch }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller==5.13.0
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller==5.13.0
 
-      - name: Create PyQt5 hook
-        run: |
-          echo "from PyInstaller.utils.hooks import collect_submodules" > hook-PyQt5.py
-          echo "hiddenimports = collect_submodules('PyQt5')" >> hook-PyQt5.py
+    - name: Build executable
+      run: |
+        $exe_name = "AgiAnalytics_Win${{ matrix.win }}_${{ matrix.arch }}"
+        echo "Building $exe_name..."
+        
+        $args = @(
+          "--onefile",
+          "--windowed",
+          "--name=$exe_name",
+          "--clean",
+          "--noconfirm",
+          "--distpath=dist",
+          "--hidden-import=PyQt5",
+          "--hidden-import=PyQt5.QtCore",
+          "--hidden-import=PyQt5.QtGui",
+          "--hidden-import=PyQt5.QtWidgets",
+          "--hidden-import=pandas",
+          "--hidden-import=numpy",
+          "--hidden-import=openpyxl",
+          "--hidden-import=sqlite3",
+          "main.py"
+        )
+        
+        if ("${{ matrix.win }}" -eq "7") {
+          $args += "--noupx"
+          $args += "--disable-windowed-traceback"
+        }
+        
+        if (Test-Path "icon.ico") {
+          $args += "--icon=icon.ico"
+        }
+        
+        Write-Host "Running: pyinstaller $args"
+        pyinstaller @args
+        
+        $exe_path = "dist/$exe_name.exe"
+        if (Test-Path $exe_path) {
+          # Копируем с уникальным именем для артефакта
+          $artifact_name = "$exe_name.exe"
+          Copy-Item $exe_path $artifact_name
+          Write-Host "✅ Build successful!"
+        } else {
+          Write-Error "❌ Build failed"
+          exit 1
+        }
 
-      - name: Create pandas hook
-        run: |
-          echo "hiddenimports = [" > hook-pandas.py
-          echo "    'pandas._libs.tslibs.np_datetime'," >> hook-pandas.py
-          echo "    'pandas._libs.tslibs.timedeltas'," >> hook-pandas.py
-          echo "    'pandas._libs.tslibs.nattype'," >> hook-pandas.py
-          echo "    'pandas._libs.tslibs.base'," >> hook-pandas.py
-          echo "    'pandas._libs.missing'," >> hook-pandas.py
-          echo "]" >> hook-pandas.py
-
-      - name: Build executable
-        run: |
-          $exe_name = "AgiAnalytics_Win${{ matrix.win }}_${{ matrix.arch }}"
-          echo "Building $exe_name..."
-          
-          $args = @(
-            "--onefile",
-            "--windowed",
-            "--name=$exe_name",
-            "--clean",
-            "--noconfirm",
-            "--distpath=dist",
-            "--additional-hooks-dir=."
-          )
-          
-          if ("${{ matrix.win }}" -eq "7") {
-            $args += "--noupx"
-            $args += "--disable-windowed-traceback"
-          }
-          
-          if (Test-Path "icon.ico") {
-            $args += "--icon=icon.ico"
-          }
-          
-          $hidden_imports = @(
-            "PyQt5",
-            "PyQt5.QtCore",
-            "PyQt5.QtGui",
-            "PyQt5.QtWidgets",
-            "pandas",
-            "numpy",
-            "openpyxl",
-            "sqlite3"
-          )
-          
-          foreach ($import in $hidden_imports) {
-            $args += "--hidden-import=$import"
-          }
-          
-          $args += "main.py"
-          
-          Write-Host "Running: pyinstaller $args"
-          pyinstaller @args
-          
-          $exe_path = "dist/$exe_name.exe"
-          if (Test-Path $exe_path) {
-            Copy-Item $exe_path .
-            Write-Host "✅ Build successful!"
-          } else {
-            Write-Error "❌ Build failed"
-            exit 1
-          }
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: $exe_name
-          path: AgiAnalytics_Win${{ matrix.win }}_${{ matrix.arch }}.exe
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AgiAnalytics-Win${{ matrix.win }}-${{ matrix.arch }}
+        path: AgiAnalytics_Win${{ matrix.win }}_${{ matrix.arch }}.exe
 
   package:
     needs: build
@@ -119,37 +97,135 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
 
-      - name: Create release package
-        run: |
-          mkdir -p release
-          find artifacts -name "*.exe" -exec cp {} release/ \;
-          
-          cat > release/README.txt << 'EOF'
-          AgiAnalytics - приложение для отслеживания абитуриентов
-          
-          Доступные версии:
-          1. Windows 7 32-bit: AgiAnalytics_Win7_x86.exe
-          2. Windows 7 64-bit: AgiAnalytics_Win7_x64.exe
-          3. Windows 10 32-bit: AgiAnalytics_Win10_x86.exe
-          4. Windows 10 64-bit: AgiAnalytics_Win10_x64.exe
-          
-          Для Windows 7 установите:
-          - Visual C++ Redistributable 2015-2022
-          - Обновление KB2999226
-          EOF
-          
-          cd release
-          zip -r ../AgiAnalytics_Release.zip .
-          cd ..
-          echo "📦 Archive created"
+    - name: Create organized release
+      run: |
+        echo "📁 Creating organized release structure..."
+        
+        # Создаем основную папку релиза
+        mkdir -p "AgiAnalytics_Release"
+        
+        # Создаем подпапки для разных версий
+        mkdir -p "AgiAnalytics_Release/Windows_7_32bit"
+        mkdir -p "AgiAnalytics_Release/Windows_7_64bit"
+        mkdir -p "AgiAnalytics_Release/Windows_10_32bit"
+        mkdir -p "AgiAnalytics_Release/Windows_10_64bit"
+        
+        # Копируем файлы в соответствующие папки
+        for file in artifacts/*/*.exe; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "Processing: $filename"
+            
+            if [[ "$filename" == *"Win7_x86"* ]]; then
+              cp "$file" "AgiAnalytics_Release/Windows_7_32bit/"
+            elif [[ "$filename" == *"Win7_x64"* ]]; then
+              cp "$file" "AgiAnalytics_Release/Windows_7_64bit/"
+            elif [[ "$filename" == *"Win10_x86"* ]]; then
+              cp "$file" "AgiAnalytics_Release/Windows_10_32bit/"
+            elif [[ "$filename" == *"Win10_x64"* ]]; then
+              cp "$file" "AgiAnalytics_Release/Windows_10_64bit/"
+            fi
+          fi
+        done
+        
+        # Создаем README файл
+        cat > "AgiAnalytics_Release/README.txt" << 'EOF'
+        ========================================
+        AgiAnalytics - Приложение для абитуриентов
+        ========================================
+        
+        Версия: ${{ github.run_number }}
+        Дата: $(date +'%Y-%m-%d')
+        
+        📁 СОДЕРЖИМОЕ АРХИВА:
+        
+        1. Windows_7_32bit/    - Для Windows 7 (32-bit)
+        2. Windows_7_64bit/    - Для Windows 7 (64-bit)
+        3. Windows_10_32bit/   - Для Windows 10 (32-bit)
+        4. Windows_10_64bit/   - Для Windows 10 (64-bit)
+        
+        🚀 ИНСТРУКЦИЯ:
+        
+        1. Откройте папку для вашей версии Windows
+        2. Запустите файл AgiAnalytics_*.exe
+        3. При первом запуске антивирус может запросить разрешение
+        
+        ⚠️ ДЛЯ WINDOWS 7:
+        
+        Перед запуском установите:
+        • Visual C++ Redistributable 2015-2022
+        • Обновление KB2999226 (Universal C Runtime)
+        • Все обновления Windows через Центр обновления
+        
+        🔧 РЕШЕНИЕ ПРОБЛЕМ:
+        
+        • Ошибка "api-ms-win-core-path-l1-1-0.dll" - установите KB2999226
+        • Антивирус блокирует - добавьте исключение
+        • Не запускается - запустите от имени администратора
+        
+        📞 ПОДДЕРЖКА:
+        
+        GitHub Issues: https://github.com/${{ github.repository }}/issues
+        EOF
+        
+        # Создаем ZIP архив
+        cd AgiAnalytics_Release
+        zip -r "../AgiAnalytics_v${{ github.run_number }}.zip" .
+        cd ..
+        
+        echo "✅ Archive created: AgiAnalytics_v${{ github.run_number }}.zip"
+        ls -la *.zip
 
-      - name: Upload release
-        uses: actions/upload-artifact@v4
-        with:
-          name: AgiAnalytics-Release
-          path: AgiAnalytics_Release.zip
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: AgiAnalytics_v${{ github.run_number }}.zip
+        tag_name: v${{ github.run_number }}
+        name: AgiAnalytics v${{ github.run_number }}
+        body: |
+          # 🚀 AgiAnalytics v${{ github.run_number }}
+          
+          **Полная сборка для Windows 7 и 10 (32-bit и 64-bit)**
+          
+          ## 📦 Что в архиве:
+          
+          | Версия Windows | Архитектура | Путь в архиве |
+          |----------------|-------------|---------------|
+          | Windows 7 | 32-bit (x86) | `Windows_7_32bit/AgiAnalytics_Win7_x86.exe` |
+          | Windows 7 | 64-bit (x64) | `Windows_7_64bit/AgiAnalytics_Win7_x64.exe` |
+          | Windows 10 | 32-bit (x86) | `Windows_10_32bit/AgiAnalytics_Win10_x86.exe` |
+          | Windows 10 | 64-bit (x64) | `Windows_10_64bit/AgiAnalytics_Win10_x64.exe` |
+          
+          ## ⚡ Быстрый старт:
+          
+          1. **Скачайте** архив
+          2. **Распакуйте** в любую папку
+          3. **Откройте** папку для вашей версии Windows
+          4. **Запустите** `.exe` файл
+          
+          ## ⚠️ Важно для Windows 7:
+          
+          Установите перед запуском:
+          - [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+          - [Обновление KB2999226](https://support.microsoft.com/ru-ru/topic/обновление-для-универсальной-среды-выполнения-c-в-windows-c0514201-7fe6-95a3-b0a5-287930f3560c)
+          - Все обновления Windows
+          
+          ## 🛠️ Технические детали:
+          
+          | Параметр | Значение |
+          |----------|----------|
+          | Сборка | #${{ github.run_number }} |
+          | Python (Win7) | 3.8 |
+          | Python (Win10) | 3.10 |
+          | Коммит | [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
+          
+          ## ❓ Поддержка:
+          
+          [Сообщить о проблеме](https://github.com/${{ github.repository }}/issues)
