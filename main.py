@@ -371,6 +371,7 @@ class ImportDialog(QDialog):
         self.setWindowTitle('Импорт данных из Excel')
         self.setFixedSize(500, 400)
         self.sheet_checkboxes = []
+        self.available_sheets = []
         self.init_ui()
 
     def init_ui(self):
@@ -387,36 +388,46 @@ class ImportDialog(QDialog):
         self.excel_password_input = QLineEdit()
         self.excel_password_input.setPlaceholderText('Оставьте пустым, если файл не защищен')
         self.excel_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.excel_password_input.textChanged.connect(self.on_password_changed)  # Добавлено
+        self.excel_password_input.textChanged.connect(self.on_password_changed)  # Связываем сигнал
         excel_password_layout.addWidget(excel_password_label)
         excel_password_layout.addWidget(self.excel_password_input)
         layout.addLayout(excel_password_layout)
 
-        # Доступные листы (будет обновлено после ввода пароля)
+        # Кнопка для загрузки листов
+        self.load_sheets_btn = QPushButton("📄 Загрузить список листов")
+        self.load_sheets_btn.clicked.connect(self.load_sheets)
+        self.load_sheets_btn.setEnabled(True)
+        layout.addWidget(self.load_sheets_btn)
+
+        # Область для отображения листов
         sheets_label = QLabel("Выберите листы для импорта:")
         sheets_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        layout.addWidget(sheets_label)
+        self.sheets_label = sheets_label
+        self.sheets_label.setVisible(False)
+        layout.addWidget(self.sheets_label)
 
         self.sheet_container = QWidget()
         self.sheet_layout = QVBoxLayout(self.sheet_container)
 
         # Добавляем прокрутку
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(self.sheet_container)
-        scroll_area.setMaximumHeight(150)
-        layout.addWidget(scroll_area)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.sheet_container)
+        self.scroll_area.setMaximumHeight(150)
+        self.scroll_area.setVisible(False)
+        layout.addWidget(self.scroll_area)
 
         # Кнопки выбора всех/очистки
-        button_layout = QHBoxLayout()
-        select_all_btn = QPushButton('Выбрать все')
-        select_all_btn.clicked.connect(self.select_all_sheets)
-        clear_all_btn = QPushButton('Очистить все')
-        clear_all_btn.clicked.connect(self.clear_all_sheets)
-        button_layout.addWidget(select_all_btn)
-        button_layout.addWidget(clear_all_btn)
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
+        self.button_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton('Выбрать все')
+        self.select_all_btn.clicked.connect(self.select_all_sheets)
+        self.clear_all_btn = QPushButton('Очистить все')
+        self.clear_all_btn.clicked.connect(self.clear_all_sheets)
+        self.button_layout.addWidget(self.select_all_btn)
+        self.button_layout.addWidget(self.clear_all_btn)
+        self.button_layout.addStretch()
+        self.button_layout.setVisible(False)
+        layout.addLayout(self.button_layout)
 
         # Информация
         info_label = QLabel("""
@@ -437,32 +448,42 @@ class ImportDialog(QDialog):
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setEnabled(False)
         layout.addWidget(button_box)
 
         self.setLayout(layout)
 
-        # Загружаем листы (если файл не защищен)
-        self.load_sheets()
-
     def on_password_changed(self, text):
-        """Обновление списка листов при изменении пароля"""
-        self.load_sheets()
+        """При изменении пароля сбрасываем выбор листов"""
+        self.reset_sheet_selection()
 
-    def load_sheets(self):
-        """Загрузка списка листов из файла"""
-        # Очищаем предыдущие чекбоксы
+    def reset_sheet_selection(self):
+        """Сброс выбора листов"""
         while self.sheet_layout.count():
             item = self.sheet_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
         self.sheet_checkboxes = []
+        self.available_sheets = []
+        self.sheets_label.setVisible(False)
+        self.scroll_area.setVisible(False)
+        self.button_layout.setVisible(False)
+        self.ok_button.setEnabled(False)
+
+    def load_sheets(self):
+        """Загрузка списка листов из файла с использованием пароля"""
+        # Очищаем предыдущие чекбоксы
+        self.reset_sheet_selection()
+
+        password = self.excel_password_input.text().strip()
+        file_path = self.file_path
 
         try:
             temp_file = None
-            file_path = self.file_path
-            password = self.excel_password_input.text().strip()
 
+            # Если указан пароль, пробуем расшифровать
             if password:
                 try:
                     import msoffcrypto
@@ -479,72 +500,54 @@ class ImportDialog(QDialog):
                         file_path = temp_file.name
 
                 except Exception as e:
-                    # Если неверный пароль, показываем сообщение
-                    error_label = QLabel(f"Файл защищен. Введите правильный пароль.")
-                    error_label.setStyleSheet("color: #e74c3c; font-style: italic;")
-                    self.sheet_layout.addWidget(error_label)
-
-                    if temp_file and os.path.exists(temp_file.name):
-                        os.unlink(temp_file.name)
+                    QMessageBox.warning(self, 'Ошибка пароля',
+                                        'Неверный пароль или файл не защищен паролем. '
+                                        'Попробуйте снова или оставьте поле пустым.')
                     return
 
             try:
-                # Определяем движок по расширению файла
-                if file_path.endswith('.xlsx'):
-                    engine = 'openpyxl'
-                elif file_path.endswith('.xls'):
-                    engine = 'xlrd'  # Для старых .xls файлов
-                else:
-                    engine = 'openpyxl'  # по умолчанию
-
-                # Пробуем прочитать файл
+                # Пробуем разные движки для чтения Excel
                 try:
-                    xls = pd.ExcelFile(file_path, engine=engine)
-                    available_sheets = xls.sheet_names
-
-                    # Создаем чекбоксы для каждого листа
-                    for sheet in available_sheets:
-                        checkbox = QCheckBox(sheet)
-                        # Автоматически выбираем листы с "курс"
-                        if 'курс' in sheet.lower():
-                            checkbox.setChecked(True)
-                        self.sheet_checkboxes.append(checkbox)
-                        self.sheet_layout.addWidget(checkbox)
-
-                except Exception as e:
-                    # Если не получилось с выбранным движком, пробуем другой
-                    error_msg = f"Ошибка с движком {engine}: {str(e)}. "
-
-                    # Пробуем другой движок
-                    alternative_engine = 'xlrd' if engine == 'openpyxl' else 'openpyxl'
+                    xls = pd.ExcelFile(file_path, engine='openpyxl')
+                except Exception as e1:
                     try:
-                        error_msg += f"Пробуем движок {alternative_engine}..."
-                        xls = pd.ExcelFile(file_path, engine=alternative_engine)
-                        available_sheets = xls.sheet_names
-
-                        # Создаем чекбоксы для каждого листа
-                        for sheet in available_sheets:
-                            checkbox = QCheckBox(sheet)
-                            # Автоматически выбираем листы с "курс"
-                            if 'курс' in sheet.lower():
-                                checkbox.setChecked(True)
-                            self.sheet_checkboxes.append(checkbox)
-                            self.sheet_layout.addWidget(checkbox)
-
+                        xls = pd.ExcelFile(file_path, engine='xlrd')
                     except Exception as e2:
-                        # Оба движка не работают
-                        error_msg += f" Ошибка: {str(e2)}"
-                        error_label = QLabel(f"Не удалось прочитать файл. {error_msg}")
-                        error_label.setStyleSheet("color: #e74c3c;")
-                        error_label.setWordWrap(True)
-                        self.sheet_layout.addWidget(error_label)
+                        # Пробуем без указания движка
+                        try:
+                            xls = pd.ExcelFile(file_path)
+                        except Exception as e3:
+                            QMessageBox.critical(self, 'Ошибка чтения файла',
+                                                 f'Не удалось прочитать файл Excel.\n'
+                                                 f'Ошибки:\n'
+                                                 f'Openpyxl: {str(e1)}\n'
+                                                 f'Xlrd: {str(e2)}\n'
+                                                 f'Automatic: {str(e3)}')
+                            return
+
+                self.available_sheets = xls.sheet_names
+
+                # Создаем чекбоксы для каждого листа
+                for sheet in self.available_sheets:
+                    checkbox = QCheckBox(sheet)
+                    # Автоматически выбираем листы с "курс"
+                    if 'курс' in sheet.lower():
+                        checkbox.setChecked(True)
+                    self.sheet_checkboxes.append(checkbox)
+                    self.sheet_layout.addWidget(checkbox)
+
+                # Показываем элементы
+                self.sheets_label.setVisible(True)
+                self.scroll_area.setVisible(True)
+                self.button_layout.setVisible(True)
+                self.ok_button.setEnabled(any(cb.isChecked() for cb in self.sheet_checkboxes))
+
+                # Обновляем состояние OK кнопки при изменении чекбоксов
+                for checkbox in self.sheet_checkboxes:
+                    checkbox.stateChanged.connect(self.update_ok_button)
 
             except Exception as e:
-                # Если ошибка чтения
-                error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
-                error_label.setStyleSheet("color: #e74c3c;")
-                error_label.setWordWrap(True)
-                self.sheet_layout.addWidget(error_label)
+                QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки листов: {str(e)}')
 
             finally:
                 # Удаляем временный файл если был создан
@@ -552,21 +555,24 @@ class ImportDialog(QDialog):
                     os.unlink(temp_file.name)
 
         except Exception as e:
-            # Общая ошибка
-            error_label = QLabel(f"Ошибка загрузки файла: {str(e)}")
-            error_label.setStyleSheet("color: #e74c3c;")
-            error_label.setWordWrap(True)
-            self.sheet_layout.addWidget(error_label)
+            QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки файла: {str(e)}')
+
+    def update_ok_button(self):
+        """Обновление состояния кнопки OK в зависимости от выбора листов"""
+        has_selected = any(cb.isChecked() for cb in self.sheet_checkboxes)
+        self.ok_button.setEnabled(has_selected)
 
     def select_all_sheets(self):
         """Выбрать все листы"""
         for checkbox in self.sheet_checkboxes:
             checkbox.setChecked(True)
+        self.update_ok_button()
 
     def clear_all_sheets(self):
         """Очистить все выборы"""
         for checkbox in self.sheet_checkboxes:
             checkbox.setChecked(False)
+        self.update_ok_button()
 
     def get_excel_password(self):
         return self.excel_password_input.text().strip()
@@ -1168,11 +1174,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, 'Ошибка', 'Пожалуйста, выберите файл Excel (.xlsx, .xls, .xlsm)')
                 return
 
-            # Показываем диалог выбора листов
+            # Показываем диалог
             dialog = ImportDialog(file_path, self)
             if dialog.exec():
-                excel_password = dialog.get_excel_password()
                 selected_sheets = dialog.get_selected_sheets()
+                excel_password = dialog.get_excel_password()
 
                 if not selected_sheets:
                     QMessageBox.warning(self, 'Ошибка', 'Выберите хотя бы один лист для импорта!')
@@ -1188,7 +1194,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
 
                 try:
-                    # Импортируем данные (без проверки пароля пользователя)
+                    # Импортируем данные
                     success, message = self.import_excel_data(
                         file_path,
                         excel_password,
