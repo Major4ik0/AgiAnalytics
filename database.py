@@ -168,7 +168,9 @@ class Database:
     def get_applicants(self, user_id=None, role=None, course=None, faculty=None):
         """Получение списка абитуриентов с учетом прав доступа"""
         cursor = self.conn.cursor()
+
         if role == 'admin':
+            # Админ видит всех
             query = 'SELECT * FROM applicants WHERE 1=1'
             params = []
 
@@ -179,18 +181,29 @@ class Database:
             query += ' ORDER BY id DESC'
             cursor.execute(query, params)
         else:
-            # Для обычного пользователя - только его данные и данные по его правам
-            cursor.execute('''
-                SELECT DISTINCT a.* 
-                FROM applicants a
-                LEFT JOIN users u 
-                LEFT JOIN permissions p ON u.id = p.user_id
-                WHERE a.created_by = ? OR (
-                    p.permission_type = 'all' OR
-                    (p.permission_type = 'course' AND p.course = a.course)
-                )
-                ORDER BY a.id DESC
-            ''', (user_id,))
+            # Обычный пользователь видит только своих абитуриентов
+            query = 'SELECT * FROM applicants WHERE created_by = ?'
+            params = [user_id]
+
+            # Проверяем права доступа пользователя
+            permissions = self.get_user_permissions(user_id)
+
+            # Если есть права на все или на определенные курсы
+            if any(p['permission_type'] == 'all' for p in permissions):
+                # Видит всех
+                query = 'SELECT * FROM applicants WHERE 1=1'
+                params = []
+            elif any(p['permission_type'] == 'course' for p in permissions):
+                # Видит определенные курсы
+                course_permissions = [p['course'] for p in permissions if p['permission_type'] == 'course']
+                if course_permissions:
+                    placeholders = ','.join(['?'] * len(course_permissions))
+                    query = f'SELECT * FROM applicants WHERE course IN ({placeholders}) OR created_by = ?'
+                    params = course_permissions + [user_id]
+
+            query += ' ORDER BY id DESC'
+            cursor.execute(query, params)
+
         return cursor.fetchall()
 
     def import_from_excel(self, file_path, user_id, password=None, selected_sheets=None):
@@ -390,10 +403,11 @@ class Database:
         """Получение прав доступа пользователя"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT p.*, u.* FROM permissions p
-            left join users u on u.id = p.user_id
-            WHERE user_id = ? 
-            ORDER BY id DESC
+            SELECT p.*, u.username, u.full_name 
+            FROM permissions p
+            LEFT JOIN users u ON u.id = p.user_id
+            WHERE p.user_id = ? 
+            ORDER BY p.id DESC
         ''', (user_id,))
         return cursor.fetchall()
 
@@ -652,6 +666,38 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute('SELECT DISTINCT course FROM applicants WHERE course IS NOT NULL AND course != ""')
         return [row['course'] for row in cursor.fetchall()]
+
+    def get_total_statistics(self):
+        """Получение общей статистики по всем курсам"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
+                COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
+                COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
+                COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
+                COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
+                COUNT(CASE WHEN document_status = '1)Формируется в военкомате' THEN 1 END) as doc1,
+                COUNT(CASE WHEN document_status = '2)Отправлено в ВА ВКО' THEN 1 END) as doc2,
+                COUNT(CASE WHEN document_status = '3)В ВА ВКО' THEN 1 END) as doc3
+            FROM applicants
+        ''')
+
+        result = cursor.fetchone()
+        if result:
+            return dict(result)
+        return {
+            'total': 0,
+            'applying': 0,
+            'refused': 0,
+            'male': 0,
+            'female': 0,
+            'military': 0,
+            'doc1': 0,
+            'doc2': 0,
+            'doc3': 0
+        }
 
     def close(self):
         """Закрытие соединения с БД"""

@@ -370,7 +370,7 @@ class ImportDialog(QDialog):
         self.setModal(True)
         self.setWindowTitle('Импорт данных из Excel')
         self.setFixedSize(500, 400)
-        self.sheet_checkboxes = []  # Инициализируем здесь
+        self.sheet_checkboxes = []
         self.init_ui()
 
     def init_ui(self):
@@ -387,64 +387,36 @@ class ImportDialog(QDialog):
         self.excel_password_input = QLineEdit()
         self.excel_password_input.setPlaceholderText('Оставьте пустым, если файл не защищен')
         self.excel_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.excel_password_input.textChanged.connect(self.on_password_changed)  # Добавлено
         excel_password_layout.addWidget(excel_password_label)
         excel_password_layout.addWidget(self.excel_password_input)
         layout.addLayout(excel_password_layout)
 
-        # Доступные листы
-        try:
-            # Пробуем прочитать файл без пароля
-            available_sheets = []
-            try:
-                # Пробуем открыть без пароля
-                xls = pd.ExcelFile(self.file_path, engine='openpyxl')
-                available_sheets = xls.sheet_names
-            except:
-                # Если не получилось, файл может быть защищен
-                available_sheets = ["Файл защищен паролем. Введите пароль выше."]
+        # Доступные листы (будет обновлено после ввода пароля)
+        sheets_label = QLabel("Выберите листы для импорта:")
+        sheets_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(sheets_label)
 
-            sheets_label = QLabel("Выберите листы для импорта:")
-            sheets_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-            layout.addWidget(sheets_label)
+        self.sheet_container = QWidget()
+        self.sheet_layout = QVBoxLayout(self.sheet_container)
 
-            # Создаем чекбоксы для каждого листа
-            self.sheet_checkboxes = []
-            sheet_container = QWidget()
-            sheet_layout = QVBoxLayout(sheet_container)
+        # Добавляем прокрутку
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.sheet_container)
+        scroll_area.setMaximumHeight(150)
+        layout.addWidget(scroll_area)
 
-            for sheet in available_sheets:
-                checkbox = QCheckBox(sheet)
-                # Автоматически выбираем листы с "курс"
-                if 'курс' in sheet.lower():
-                    checkbox.setChecked(True)
-                self.sheet_checkboxes.append(checkbox)
-                sheet_layout.addWidget(checkbox)
-
-            # Добавляем прокрутку если листов много
-            if len(available_sheets) > 5:
-                scroll_area = QScrollArea()
-                scroll_area.setWidgetResizable(True)
-                scroll_area.setWidget(sheet_container)
-                scroll_area.setMaximumHeight(150)
-                layout.addWidget(scroll_area)
-            else:
-                layout.addWidget(sheet_container)
-
-            # Кнопки выбора всех/очистки
-            button_layout = QHBoxLayout()
-            select_all_btn = QPushButton('Выбрать все')
-            select_all_btn.clicked.connect(self.select_all_sheets)
-            clear_all_btn = QPushButton('Очистить все')
-            clear_all_btn.clicked.connect(self.clear_all_sheets)
-            button_layout.addWidget(select_all_btn)
-            button_layout.addWidget(clear_all_btn)
-            button_layout.addStretch()
-            layout.addLayout(button_layout)
-
-        except Exception as e:
-            error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
-            error_label.setStyleSheet("color: #e74c3c;")
-            layout.addWidget(error_label)
+        # Кнопки выбора всех/очистки
+        button_layout = QHBoxLayout()
+        select_all_btn = QPushButton('Выбрать все')
+        select_all_btn.clicked.connect(self.select_all_sheets)
+        clear_all_btn = QPushButton('Очистить все')
+        clear_all_btn.clicked.connect(self.clear_all_sheets)
+        button_layout.addWidget(select_all_btn)
+        button_layout.addWidget(clear_all_btn)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
 
         # Информация
         info_label = QLabel("""
@@ -465,9 +437,86 @@ class ImportDialog(QDialog):
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-
         layout.addWidget(button_box)
+
         self.setLayout(layout)
+
+        # Загружаем листы (если файл не защищен)
+        self.load_sheets()
+
+    def on_password_changed(self, text):
+        """Обновление списка листов при изменении пароля"""
+        self.load_sheets()
+
+    def load_sheets(self):
+        """Загрузка списка листов из файла"""
+        # Очищаем предыдущие чекбоксы
+        while self.sheet_layout.count():
+            item = self.sheet_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.sheet_checkboxes = []
+
+        try:
+            temp_file = None
+            file_path = self.file_path
+            password = self.excel_password_input.text().strip()
+
+            if password:
+                try:
+                    import msoffcrypto
+                    import tempfile
+
+                    with open(file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+                        office_file.load_key(password=password)
+
+                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        office_file.decrypt(temp_file)
+                        temp_file.close()
+
+                        file_path = temp_file.name
+
+                except Exception as e:
+                    # Если неверный пароль, показываем сообщение
+                    error_label = QLabel(f"Файл защищен. Введите правильный пароль.")
+                    error_label.setStyleSheet("color: #e74c3c; font-style: italic;")
+                    self.sheet_layout.addWidget(error_label)
+
+                    if temp_file and os.path.exists(temp_file.name):
+                        os.unlink(temp_file.name)
+                    return
+
+            # Пробуем прочитать файл
+            engine = None
+            if file_path.endswith('.xlsx'):
+                engine = 'openpyxl'
+            elif file_path.endswith('.xls'):
+                engine = 'xlrd'
+            else:
+                engine = 'openpyxl'
+
+            xls = pd.ExcelFile(file_path, engine=engine)
+            available_sheets = xls.sheet_names
+
+            # Создаем чекбоксы для каждого листа
+            for sheet in available_sheets:
+                checkbox = QCheckBox(sheet)
+                # Автоматически выбираем листы с "курс"
+                if 'курс' in sheet.lower():
+                    checkbox.setChecked(True)
+                self.sheet_checkboxes.append(checkbox)
+                self.sheet_layout.addWidget(checkbox)
+
+            if temp_file and os.path.exists(temp_file.name):
+                os.unlink(temp_file.name)
+
+        except Exception as e:
+            # Если ошибка чтения
+            error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
+            error_label.setStyleSheet("color: #e74c3c;")
+            self.sheet_layout.addWidget(error_label)
 
     def select_all_sheets(self):
         """Выбрать все листы"""
@@ -484,10 +533,7 @@ class ImportDialog(QDialog):
 
     def get_selected_sheets(self):
         """Получить список выбранных листов"""
-        # Возвращаем только если есть чекбоксы
-        if hasattr(self, 'sheet_checkboxes'):
-            return [checkbox.text() for checkbox in self.sheet_checkboxes if checkbox.isChecked()]
-        return []
+        return [checkbox.text() for checkbox in self.sheet_checkboxes if checkbox.isChecked()]
 
 
 class MainWindow(QMainWindow):
@@ -621,9 +667,8 @@ class MainWindow(QMainWindow):
         filter_widget.setLayout(filter_layout)
         layout.addWidget(filter_widget)
 
-        # Таблица
         self.table = QTableWidget()
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(11)  # Было 11
         self.table.setHorizontalHeaderLabels([
             'ID', 'Уч. группа', 'Звание', 'ФИО студента',
             'Регион', 'Город', 'Категория', 'ФИО абитуриента',
@@ -845,7 +890,7 @@ class MainWindow(QMainWindow):
             else:
                 applicants = self.db.get_applicants(self.user_data['id'], 'admin')
         else:
-            applicants = self.db.get_applicants(self.user_data['id'])
+            applicants = self.db.get_applicants(self.user_data['id'], self.user_data['role'])
 
         # Применение поиска
         search_text = self.search_input.text().lower().strip()
@@ -862,13 +907,11 @@ class MainWindow(QMainWindow):
                     str(applicant_dict.get('applicant_name', '')),
                     str(applicant_dict.get('phone', '')),
                     str(applicant_dict.get('course', '')),
-                    # str(applicant_dict.get('faculty', ''))
                 ]
                 if any(search_text in field.lower() for field in text_fields):
                     filtered_applicants.append(applicant)
             applicants = filtered_applicants
 
-        # Заполнение таблицы
         self.table.setRowCount(len(applicants))
 
         for row, applicant in enumerate(applicants):
@@ -886,8 +929,7 @@ class MainWindow(QMainWindow):
                 QTableWidgetItem(applicant_dict.get('phone', '')),
                 QTableWidgetItem(applicant_dict.get('status', '')),
                 QTableWidgetItem(applicant_dict.get('document_status', '')),
-                QTableWidgetItem(applicant_dict.get('course', '')),
-                # QTableWidgetItem(applicant_dict.get('faculty', ''))
+                QTableWidgetItem(applicant_dict.get('course', '')),  # Добавлен курс
             ]
 
             for col, item in enumerate(items):
@@ -1137,32 +1179,32 @@ class MainWindow(QMainWindow):
             temp_file = None
             if excel_password:
                 try:
-                    # Создаем временный файл для расшифрованного содержимого
                     import msoffcrypto
-                    import io
                     import tempfile
 
-                    # Открываем зашифрованный файл
                     with open(file_path, "rb") as f:
                         office_file = msoffcrypto.OfficeFile(f)
-
-                        # Пробуем расшифровать
                         office_file.load_key(password=excel_password)
 
-                        # Создаем временный файл
                         temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
                         office_file.decrypt(temp_file)
                         temp_file.close()
 
-                        # Используем расшифрованный файл
                         file_path = temp_file.name
 
                 except Exception as e:
-                    return False, f"Неверный пароль Excel файла или ошибка расшифровки: {str(e)}"
+                    return False, f"Неверный пароль Excel файла: {str(e)}"
 
             try:
-                # Читаем Excel файл
-                engine = 'openpyxl' if file_path.endswith('.xlsx') else 'xlrd'
+                # Определяем движок для чтения Excel
+                engine = None
+                if file_path.endswith('.xlsx'):
+                    engine = 'openpyxl'
+                elif file_path.endswith('.xls'):
+                    engine = 'xlrd'
+                else:
+                    engine = 'openpyxl'  # по умолчанию
+
                 xls = pd.ExcelFile(file_path, engine=engine)
 
                 imported_count = 0
@@ -1171,12 +1213,14 @@ class MainWindow(QMainWindow):
 
                 # Проверяем доступные листы
                 available_sheets = xls.sheet_names
+
                 for sheet in selected_sheets:
                     if sheet not in available_sheets:
                         return False, f"Лист '{sheet}' не найден в файле"
 
                 for sheet_name in selected_sheets:
                     try:
+
                         # Читаем лист
                         df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
 
@@ -1186,6 +1230,10 @@ class MainWindow(QMainWindow):
                             if f'{course_num} курс' in sheet_name.lower():
                                 course_from_sheet = f'{course_num} курс'
                                 break
+                            elif f'курс {course_num}' in sheet_name.lower():
+                                course_from_sheet = f'{course_num} курс'
+                                break
+
 
                         # Импортируем данные
                         for index, row in df.iterrows():
@@ -1203,13 +1251,19 @@ class MainWindow(QMainWindow):
                                     continue
 
                                 # Добавляем в базу
-                                self.db.add_applicant(self.user_data['id'], applicant_data)
-                                imported_count += 1
+                                try:
+                                    self.db.add_applicant(self.user_data['id'], applicant_data)
+                                    imported_count += 1
+                                except Exception as e:
+                                    print(f"  Ошибка добавления в БД: {e}")
+                                    skipped_count += 1
                             else:
                                 skipped_count += 1
 
                     except Exception as e:
                         print(f"Ошибка импорта листа {sheet_name}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         continue
 
                 # Удаляем временный файл если был создан
@@ -1229,9 +1283,15 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 if temp_file and os.path.exists(temp_file.name):
                     os.unlink(temp_file.name)
+                print(f"Ошибка чтения Excel файла: {e}")
+                import traceback
+                traceback.print_exc()
                 return False, f"Ошибка чтения Excel файла: {str(e)}"
 
         except Exception as e:
+            print(f"Общая ошибка импорта: {e}")
+            import traceback
+            traceback.print_exc()
             return False, f"Ошибка импорта: {str(e)}"
 
     def extract_applicant_data(self, row, df, course):
@@ -1252,48 +1312,74 @@ class MainWindow(QMainWindow):
 
             # Собираем данные
             applicant_data = {
-                'study_group': self._get_cell_value(row, df, ['уч.гр.', 'Уч. группа', 'учебная группа']),
-                'rank': self._get_cell_value(row, df, ['В.зв', 'Звание', 'воинское звание'], 'ряд.'),
-                'student_name': self._get_cell_value(row, df, ['ФИО', 'ФИО студента', 'Студент']),
-                'region': self._get_cell_value(row, df, ['Субъект РФ', 'Регион', 'область']),
-                'city': self._get_cell_value(row, df, ['Населённый пункт', 'Город', 'город']),
-                'category': self._get_cell_value(row, df, ['категория', 'Категория', 'пол'], 'муж'),
+                'study_group': self._get_cell_value(row, ['уч.гр.', 'Уч. группа', 'учебная группа', 'Учебная группа',
+                                                          'Группа']),
+                'rank': self._get_cell_value(row, ['В.зв', 'Звание', 'воинское звание', 'Воинское звание', 'звание'],
+                                             'ряд.'),
+                'student_name': self._get_cell_value(row, ['ФИО', 'ФИО студента', 'Студент', 'фио', 'Студент ФИО']),
+                'region': self._get_cell_value(row,
+                                               ['Субъект РФ', 'Регион', 'область', 'Субъект_РФ', 'Регион (область)']),
+                'city': self._get_cell_value(row, ['Населённый пункт', 'Город', 'город', 'Населенный пункт',
+                                                   'Город/населенный пункт']),
+                'category': self._get_cell_value(row, ['категория', 'Категория', 'пол', 'Пол', 'Кат.'], 'муж'),
                 'applicant_name': applicant_name,
-                'phone': self._get_cell_value(row, df, ['Телефон', 'телефон', 'контактный телефон']),
-                'status': self._get_cell_value(row, df, ['Статус', 'статус', 'Статус поступления'], '1)поступает'),
-                'document_status': self._get_cell_value(row, df, ['Состояние личного дела на поступление', 'Документы',
-                                                                  'документы']),
-                'notes': self._get_cell_value(row, df, ['Примечание', 'примечание', 'комментарий']),
+                'phone': self._get_cell_value(row, ['Телефон', 'телефон', 'контактный телефон', 'Телефон абитуриента',
+                                                    'Тел.']),
+                'status': self._get_cell_value(row, ['Статус', 'статус', 'Статус поступления', 'Статус абитуриента'],
+                                               'поступает'),
+                'document_status': self._get_cell_value(row, ['Состояние личного дела на поступление', 'Документы',
+                                                              'документы', 'Статус документов']),
+                'notes': self._get_cell_value(row, ['Примечание', 'примечание', 'комментарий', 'Комментарий', 'Прим.']),
                 'course': course,
-                'faculty': self._get_cell_value(row, df, ['Факультет', 'факультет', 'Факультет/отделение'])
+                'faculty': self._get_cell_value(row, ['Факультет', 'факультет', 'Факультет/отделение', 'Отделение'])
             }
+
+            # Нормализация статуса
+            status = applicant_data['status'].lower()
+            if 'поступает' in status or status == '1' or status == '1)поступает' or '1)' in status:
+                applicant_data['status'] = '1)поступает'
+            elif 'не поступает' in status or status == '0' or status == '2)не поступает' or '2)' in status or 'не' in status:
+                applicant_data['status'] = '2)не поступает'
+            else:
+                applicant_data['status'] = '1)поступает'
+
+            # Нормализация статуса документов
+            doc_status = applicant_data['document_status'].lower()
+            if 'формируется' in doc_status or doc_status == '1' or doc_status == '1)формируется' or '1)' in doc_status:
+                applicant_data['document_status'] = '1)Формируется в военкомате'
+            elif 'отправлено' in doc_status or doc_status == '2' or doc_status == '2)отправлено' or '2)' in doc_status:
+                applicant_data['document_status'] = '2)Отправлено в ВА ВКО'
+            elif 'ва вко' in doc_status or doc_status == '3' or doc_status == '3)в ва вко' or '3)' in doc_status:
+                applicant_data['document_status'] = '3)В ВА ВКО'
+            else:
+                applicant_data['document_status'] = ''
 
             return applicant_data
 
         except Exception as e:
             print(f"Ошибка извлечения данных: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
-    def _get_cell_value(self, row, df, possible_columns, default=''):
+    def _get_cell_value(self, row, possible_columns, default=''):
         """Получение значения ячейки из возможных колонок"""
         for col in possible_columns:
-            if col in df.columns:
-                value = row[col]
-                if pd.notna(value):
-                    return str(value).strip()
+            if col in row and pd.notna(row[col]):
+                return str(row[col]).strip()
         return default
 
     def check_duplicate(self, applicant_data):
-        """Проверка на дубликат"""
+        """Проверка на дубликат (все пользователи)"""
         cursor = self.db.conn.cursor()
         cursor.execute('''
             SELECT COUNT(*) FROM applicants 
-            WHERE created_by = ? 
-            AND applicant_name = ?
+            WHERE applicant_name = ?
             AND phone = ?
             AND course = ?
-        ''', (self.user_data['id'], applicant_data['applicant_name'],
-              applicant_data['phone'], applicant_data['course']))
+        ''', (applicant_data['applicant_name'],
+              applicant_data['phone'],
+              applicant_data['course']))
         count = cursor.fetchone()[0]
         return count > 0
 

@@ -303,6 +303,146 @@ class CourseSection(QFrame):
             layout.addWidget(chart_widget)
 
 
+class TotalStatisticsSection(QFrame):
+    """Секция с общей статистикой (только для админа)"""
+
+    def __init__(self, stats, parent=None):
+        super().__init__(parent)
+        self.stats = stats
+        self.init_ui()
+
+    def init_ui(self):
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #2c3e50;
+                border-radius: 10px;
+                border: none;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(25, 20, 25, 25)
+        layout.setSpacing(20)
+
+        # Заголовок
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        title_label = QLabel("📊 Общая статистика (все курсы)")
+        title_font = QFont()
+        title_font.setPointSize(18)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: white;")
+
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+
+        # Бейдж с общим количеством
+        total_badge = QLabel(f"Всего абитуриентов: {self.stats.get('total', 0)}")
+        total_badge.setStyleSheet("""
+            QLabel {
+                background-color: #e74c3c;
+                color: white;
+                border-radius: 15px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+        """)
+        header_layout.addWidget(total_badge)
+
+        layout.addWidget(header_widget)
+
+        # Сетка карточек статистики
+        cards_widget = QWidget()
+        cards_layout = QGridLayout(cards_widget)
+        cards_layout.setSpacing(15)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Основные карточки общей статистики
+        main_cards = [
+            ('👥 Всего абитуриентов', 'total', '#3498db'),
+            ('✅ Поступают', 'applying', '#2ecc71'),
+            ('❌ Отказались', 'refused', '#e74c3c'),
+            ('👨 Мужчины', 'male', '#9b59b6'),
+            ('👩 Женщины', 'female', '#e67e22'),
+            ('🎖️ Военнослужащие', 'military', '#1abc9c'),
+        ]
+
+        for i, (title, key, color) in enumerate(main_cards):
+            row = i // 3
+            col = i % 3
+            value = self.stats.get(key, 0)
+            card = StatisticsCard(title, value, color)
+            cards_layout.addWidget(card, row, col)
+
+        layout.addWidget(cards_widget)
+
+        # Процентное соотношение
+        if self.stats.get('total', 0) > 0:
+            self.add_percentage_section(layout)
+
+    def add_percentage_section(self, layout):
+        """Добавление секции с процентным соотношением"""
+        total = self.stats.get('total', 0)
+        applying = self.stats.get('applying', 0)
+        refused = self.stats.get('refused', 0)
+
+        if total > 0:
+            percent_widget = QWidget()
+            percent_layout = QHBoxLayout(percent_widget)
+            percent_layout.setSpacing(30)
+            percent_layout.setContentsMargins(0, 15, 0, 0)
+
+            # Поступают
+            if applying > 0:
+                percent_applying = (applying / total) * 100
+                applying_widget = QWidget()
+                applying_layout = QVBoxLayout(applying_widget)
+                applying_layout.setContentsMargins(0, 0, 0, 0)
+
+                applying_label = QLabel("✅ Поступают")
+                applying_label.setStyleSheet("color: #bdc3c7; font-weight: bold; font-size: 14px;")
+                applying_layout.addWidget(applying_label)
+
+                applying_percent = QLabel(f"{percent_applying:.1f}%")
+                applying_percent.setStyleSheet("color: #2ecc71; font-size: 24px; font-weight: bold;")
+                applying_layout.addWidget(applying_percent)
+
+                applying_count = QLabel(f"({applying} чел.)")
+                applying_count.setStyleSheet("color: #95a5a6; font-size: 12px;")
+                applying_layout.addWidget(applying_count)
+
+                percent_layout.addWidget(applying_widget)
+
+            # Отказались
+            if refused > 0:
+                percent_refused = (refused / total) * 100
+                refused_widget = QWidget()
+                refused_layout = QVBoxLayout(refused_widget)
+                refused_layout.setContentsMargins(0, 0, 0, 0)
+
+                refused_label = QLabel("❌ Отказались")
+                refused_label.setStyleSheet("color: #bdc3c7; font-weight: bold; font-size: 14px;")
+                refused_layout.addWidget(refused_label)
+
+                refused_percent = QLabel(f"{percent_refused:.1f}%")
+                refused_percent.setStyleSheet("color: #e74c3c; font-size: 24px; font-weight: bold;")
+                refused_layout.addWidget(refused_percent)
+
+                refused_count = QLabel(f"({refused} чел.)")
+                refused_count.setStyleSheet("color: #95a5a6; font-size: 12px;")
+                refused_layout.addWidget(refused_count)
+
+                percent_layout.addWidget(refused_widget)
+
+            percent_layout.addStretch()
+            layout.addWidget(percent_widget)
+
+
 class EmptyStateWidget(QFrame):
     """Виджет для состояния без данных"""
 
@@ -463,36 +603,6 @@ class StatisticsWidget(QWidget):
         """)
         self.category_combo.addItems(['Все категории', 'муж', 'жен', 'в/сл'])
 
-        # Факультет (только для админа)
-        # if self.role == 'admin':
-        #     faculty_label = QLabel("Факультет:")
-        #     faculty_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        #     self.faculty_combo = QComboBox()
-        #     self.faculty_combo.setStyleSheet("""
-        #         QComboBox {
-        #             padding: 8px;
-        #             border: 1px solid #bdc3c7;
-        #             border-radius: 6px;
-        #             background-color: white;
-        #             min-width: 150px;
-        #         }
-        #         QComboBox:hover {
-        #             border-color: #3498db;
-        #         }
-        #         QComboBox:focus {
-        #             border-color: #2980b9;
-        #         }
-        #     """)
-        #
-        #     # Загрузка факультетов из БД
-        #     faculties = self.db.get_all_faculties()
-        #     self.faculty_combo.addItem('Все факультеты')
-        #     for faculty in faculties:
-        #         self.faculty_combo.addItem(faculty)
-        #
-        #     controls_layout.addWidget(faculty_label)
-        #     controls_layout.addWidget(self.faculty_combo)
-
         # Кнопка обновления
         self.refresh_btn = QPushButton("🔄 Обновить")
         self.refresh_btn.setStyleSheet("""
@@ -588,21 +698,15 @@ class StatisticsWidget(QWidget):
         selected_course = self.course_combo.currentText()
         selected_category = self.category_combo.currentText()
 
-        # Получение факультета для админа
-        selected_faculty = None
-        # if self.role == 'admin' and hasattr(self, 'faculty_combo'):
-        #     selected_faculty = self.faculty_combo.currentText()
-        #     if selected_faculty == 'Все факультеты':
-        #         selected_faculty = None
-
         # Получение данных из БД
         if self.role == 'admin':
             if selected_course != 'Все курсы':
-                stats = self.db.get_statistics(self.user_id, self.role, selected_course, selected_faculty)
+                # Показать статистику для конкретного курса
+                stats = self.db.get_statistics(self.user_id, self.role, selected_course)
                 self.display_course_stats(selected_course, stats, selected_category)
             else:
-                # Для всех курсов
-                self.display_all_courses_stats(selected_category, selected_faculty)
+                # Показать общую статистику и по всем курсам
+                self.display_total_statistics(selected_category)
         else:
             # Для обычного пользователя
             user_info = self.db.get_user_by_id(self.user_id)
@@ -612,6 +716,74 @@ class StatisticsWidget(QWidget):
 
         # Добавляем растягивающийся элемент
         self.scroll_layout.addStretch()
+
+    def display_total_statistics(self, category_filter):
+        """Отображение общей статистики и по всем курсам (только для админа)"""
+        # Получаем общую статистику по всем курсам
+        all_stats = self.calculate_total_statistics()
+
+        if all_stats['total'] > 0:
+            # Показываем общую статистику
+            total_section = TotalStatisticsSection(all_stats)
+            self.scroll_layout.addWidget(total_section)
+
+            # Получаем статистику по каждому курсу
+            courses = ['1 курс', '2 курс', '3 курс', '4 курс', '5 курс']
+            has_course_data = False
+
+            for course in courses:
+                stats = self.db.get_statistics(self.user_id, 'admin', course)
+                if stats and stats[0]['total'] > 0:
+                    has_course_data = True
+                    for stat in stats:
+                        stats_dict = self.filter_by_category(dict(stat), category_filter)
+                        section = CourseSection(course, stats_dict)
+                        self.scroll_layout.addWidget(section)
+
+            if not has_course_data:
+                empty_state = EmptyStateWidget("Нет данных по отдельным курсам")
+                self.scroll_layout.addWidget(empty_state)
+
+            # Обновляем информационную панель
+            self.info_label.setText("📊 Отображается общая статистика по всем курсам")
+            self.info_panel.setVisible(True)
+        else:
+            empty_state = EmptyStateWidget("Нет данных для отображения статистики")
+            self.scroll_layout.addWidget(empty_state)
+            self.info_panel.setVisible(False)
+
+    def calculate_total_statistics(self):
+        """Вычисление общей статистики по всем курсам"""
+        cursor = self.db.conn.cursor()
+
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
+                COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
+                COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
+                COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
+                COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
+                COUNT(CASE WHEN document_status = '1)Формируется в военкомате' THEN 1 END) as doc1,
+                COUNT(CASE WHEN document_status = '2)Отправлено в ВА ВКО' THEN 1 END) as doc2,
+                COUNT(CASE WHEN document_status = '3)В ВА ВКО' THEN 1 END) as doc3
+            FROM applicants
+        ''')
+
+        result = cursor.fetchone()
+        if result:
+            return dict(result)
+        return {
+            'total': 0,
+            'applying': 0,
+            'refused': 0,
+            'male': 0,
+            'female': 0,
+            'military': 0,
+            'doc1': 0,
+            'doc2': 0,
+            'doc3': 0
+        }
 
     def display_course_stats(self, course_name, stats, category_filter):
         """Отображение статистики по одному курсу"""
@@ -633,7 +805,7 @@ class StatisticsWidget(QWidget):
             self.info_panel.setVisible(False)
 
     def display_all_courses_stats(self, category_filter, faculty_filter=None):
-        """Отображение статистики по всем курсам"""
+        """Отображение статистики по всем курсам (старый метод, оставлен для совместимости)"""
         stats = self.db.get_statistics(self.user_id, 'admin', None, faculty_filter)
         has_data = False
 
@@ -653,7 +825,7 @@ class StatisticsWidget(QWidget):
             self.info_label.setText(f"📊 Отображается статистика по всем курсам")
             self.info_panel.setVisible(True)
         else:
-            faculty_text =  ""
+            faculty_text = ""
             empty_state = EmptyStateWidget(f"Нет данных ни по одному курсу {faculty_text}")
             self.scroll_layout.addWidget(empty_state)
             self.info_panel.setVisible(False)
