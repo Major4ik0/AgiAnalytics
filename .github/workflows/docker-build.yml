@@ -82,7 +82,8 @@ jobs:
         
         $exe_path = "dist/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe"
         if (Test-Path $exe_path) {
-          Write-Host "✅ Build successful!"
+          $size = (Get-Item $exe_path).Length / 1MB
+          Write-Host "✅ Build successful! Size: $size MB"
         } else {
           Write-Error "❌ Build failed"
           exit 1
@@ -104,33 +105,169 @@ jobs:
     steps:
     - name: Download artifacts
       run: |
-        mkdir -p artifacts
-        for version in 7 10; do
-          for arch in x86 x64; do
-            echo "Downloading Windows $version $arch..."
-            gh run download ${{ github.run_id }} \
-              -n "AgiAnalytics-Win$version-$arch" \
-              -D "artifacts" 2>/dev/null || true
-          done
+        # Создаем папку для артефактов
+        mkdir -p release_binaries
+        
+        # Скачиваем каждый артефакт по отдельности
+        artifacts=(
+          "AgiAnalytics-Win7-x86"
+          "AgiAnalytics-Win7-x64"
+          "AgiAnalytics-Win10-x86"
+          "AgiAnalytics-Win10-x64"
+        )
+        
+        for artifact in "${artifacts[@]}"; do
+          echo "📥 Downloading $artifact..."
+          gh run download ${{ github.run_id }} \
+            --name "$artifact" \
+            --dir "release_binaries" 2>/dev/null || echo "⚠️ Artifact $artifact not found"
+        done
+        
+        # Проверяем что скачалось
+        echo "📁 Downloaded files:"
+        find release_binaries -type f -name "*.exe" | while read file; do
+          echo "  - $(basename "$file")"
         done
 
-    - name: Create zip
+    - name: Create organized release structure
       run: |
-        mkdir -p release
-        cp artifacts/*.exe release/ 2>/dev/null || true
-        cd release
-        zip -r ../AgiAnalytics_Release.zip *
+        # Создаем структурированную папку для релиза
+        mkdir -p "AgiAnalytics_v${{ github.run_number }}"
+        cd "AgiAnalytics_v${{ github.run_number }}"
+        
+        # Создаем папки для разных версий
+        mkdir -p "Windows_7/x86" "Windows_7/x64"
+        mkdir -p "Windows_10/x86" "Windows_10/x64"
+        
+        # Копируем файлы в соответствующие папки
+        for file in ../release_binaries/*.exe; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "📄 Processing $filename"
+            
+            # Определяем куда копировать
+            if [[ "$filename" == *"Win7_x86"* ]]; then
+              cp "$file" "Windows_7/x86/"
+            elif [[ "$filename" == *"Win7_x64"* ]]; then
+              cp "$file" "Windows_7/x64/"
+            elif [[ "$filename" == *"Win10_x86"* ]]; then
+              cp "$file" "Windows_10/x86/"
+            elif [[ "$filename" == *"Win10_x64"* ]]; then
+              cp "$file" "Windows_10/x64/"
+            fi
+          fi
+        done
+        
+        # Создаем README файл
+        cat > "README.md" << 'EOF'
+        # AgiAnalytics v${{ github.run_number }}
+        
+        Приложение для отслеживания абитуриентов
+        
+        ## Доступные версии:
+        
+        ### Windows 7:
+        - **32-bit (x86)**: Windows_7/x86/AgiAnalytics_Win7_x86.exe
+        - **64-bit (x64)**: Windows_7/x64/AgiAnalytics_Win7_x64.exe
+        
+        ### Windows 10:
+        - **32-bit (x86)**: Windows_10/x86/AgiAnalytics_Win10_x86.exe
+        - **64-bit (x64)**: Windows_10/x64/AgiAnalytics_Win10_x64.exe
+        
+        ## Инструкция по установке:
+        
+        1. Выберите папку для вашей версии Windows и архитектуры
+        2. Скопируйте .exe файл в любое удобное место
+        3. Запустите файл
+        
+        ## Для Windows 7:
+        
+        Перед запуском рекомендуется установить:
+        - Все обновления Windows через Центр обновления
+        - Visual C++ Redistributable для Visual Studio 2015-2022
+        - .NET Framework 4.5 или новее
+        
+        ## Решение проблем:
+        
+        - Если антивирус блокирует: добавьте исключение
+        - Если не запускается: попробуйте запустить от имени администратора
+        - Для ошибок с DLL: установите обновление KB2999226
+        
+        ---
+        Сборка: ${{ github.run_number }}
+        Дата: $(date +'%Y-%m-%d')
+        EOF
+        
+        # Возвращаемся на уровень выше
         cd ..
+        
+        # Создаем архив
+        echo "📦 Creating archive..."
+        zip -r "AgiAnalytics_v${{ github.run_number }}.zip" "AgiAnalytics_v${{ github.run_number }}"
+        
+        # Проверяем архив
+        echo "✅ Archive created:"
+        ls -la "AgiAnalytics_v${{ github.run_number }}.zip"
 
-    - name: Create Release
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        files: AgiAnalytics_Release.zip
+        files: AgiAnalytics_v${{ github.run_number }}.zip
         tag_name: v${{ github.run_number }}
-        name: Release v${{ github.run_number }}
+        name: AgiAnalytics v${{ github.run_number }}
         body: |
-          # AgiAnalytics v${{ github.run_number }}
+          # 🚀 AgiAnalytics v${{ github.run_number }}
           
-          Windows 7 и 10 (32-bit и 64-bit)
+          **Полная сборка для Windows 7 и Windows 10 (32-bit и 64-bit)**
           
-          Сборка #${{ github.run_number }}
+          ## 📁 Содержимое архива:
+          
+          ```
+          AgiAnalytics_v${{ github.run_number }}.zip/
+          ├── README.md
+          ├── Windows_7/
+          │   ├── x86/AgiAnalytics_Win7_x86.exe
+          │   └── x64/AgiAnalytics_Win7_x64.exe
+          └── Windows_10/
+              ├── x86/AgiAnalytics_Win10_x86.exe
+              └── x64/AgiAnalytics_Win10_x64.exe
+          ```
+          
+          ## 🎯 Как использовать:
+          
+          1. **Скачайте** архив
+          2. **Распакуйте** его
+          3. **Перейдите** в папку для вашей версии Windows
+          4. **Запустите** `.exe` файл
+          
+          ## ⚠️ Для пользователей Windows 7:
+          
+          Перед запуском убедитесь, что установлены:
+          - Все обновления Windows (особенно KB2999226)
+          - Visual C++ Redistributable 2015-2022
+          - .NET Framework 4.5+
+          
+          ## 🔧 Особенности сборки:
+          
+          - **Windows 7:** отключен UPX, добавлена совместимость
+          - **Windows 10:** оптимизированная сборка
+          - **Все версии:** статически скомпилированы зависимости
+          
+          | Версия | Python | Архитектура |
+          |--------|--------|-------------|
+          | Windows 7 | 3.8 | x86, x64 |
+          | Windows 10 | 3.10 | x86, x64 |
+          
+          ## 📊 Информация о сборке:
+          
+          - **Номер сборки:** ${{ github.run_number }}
+          - **Дата:** ${{ github.event.head_commit.timestamp }}
+          - **Коммит:** [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          
+          ## ❓ Поддержка:
+          
+          Проблемы и вопросы: [Создать Issue](https://github.com/${{ github.repository }}/issues)
+        draft: false
+        prerelease: false
