@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 
-import pandas as pd
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -15,6 +15,7 @@ from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
 from datetime import datetime
 from database import Database
 from statistics_widget import StatisticsWidget
+import pandas as pd
 import os
 os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
@@ -388,7 +389,7 @@ class ImportDialog(QDialog):
         self.excel_password_input = QLineEdit()
         self.excel_password_input.setPlaceholderText('Оставьте пустым, если файл не защищен')
         self.excel_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.excel_password_input.textChanged.connect(self.on_password_changed)  # Связываем сигнал
+        self.excel_password_input.textChanged.connect(self.on_password_changed)
         excel_password_layout.addWidget(excel_password_label)
         excel_password_layout.addWidget(self.excel_password_input)
         layout.addLayout(excel_password_layout)
@@ -417,17 +418,18 @@ class ImportDialog(QDialog):
         self.scroll_area.setVisible(False)
         layout.addWidget(self.scroll_area)
 
-        # Кнопки выбора всех/очистки
-        self.button_layout = QHBoxLayout()
+        # Виджет с кнопками выбора всех/очистки
+        self.buttons_widget = QWidget()
+        self.buttons_layout = QHBoxLayout(self.buttons_widget)
         self.select_all_btn = QPushButton('Выбрать все')
         self.select_all_btn.clicked.connect(self.select_all_sheets)
         self.clear_all_btn = QPushButton('Очистить все')
         self.clear_all_btn.clicked.connect(self.clear_all_sheets)
-        self.button_layout.addWidget(self.select_all_btn)
-        self.button_layout.addWidget(self.clear_all_btn)
-        self.button_layout.addStretch()
-        self.button_layout.setVisible(False)
-        layout.addLayout(self.button_layout)
+        self.buttons_layout.addWidget(self.select_all_btn)
+        self.buttons_layout.addWidget(self.clear_all_btn)
+        self.buttons_layout.addStretch()
+        self.buttons_widget.setVisible(False)
+        layout.addWidget(self.buttons_widget)
 
         # Информация
         info_label = QLabel("""
@@ -469,7 +471,7 @@ class ImportDialog(QDialog):
         self.available_sheets = []
         self.sheets_label.setVisible(False)
         self.scroll_area.setVisible(False)
-        self.button_layout.setVisible(False)
+        self.buttons_widget.setVisible(False)
         self.ok_button.setEnabled(False)
 
     def load_sheets(self):
@@ -539,7 +541,7 @@ class ImportDialog(QDialog):
                 # Показываем элементы
                 self.sheets_label.setVisible(True)
                 self.scroll_area.setVisible(True)
-                self.button_layout.setVisible(True)
+                self.buttons_widget.setVisible(True)
                 self.ok_button.setEnabled(any(cb.isChecked() for cb in self.sheet_checkboxes))
 
                 # Обновляем состояние OK кнопки при изменении чекбоксов
@@ -1226,20 +1228,16 @@ class MainWindow(QMainWindow):
             # Пробуем открыть как zip (для .xlsx)
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    print(f"Файл {file_path} является ZIP-архивом (.xlsx)")
                     return 'xlsx'
             except zipfile.BadZipFile:
-                print(f"Файл {file_path} не является ZIP-архивом, возможно .xls")
 
                 # Пробуем определить по магическим числам
                 with open(file_path, 'rb') as f:
                     header = f.read(8)
                     # Проверяем сигнатуры .xls
                     if header[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1':
-                        print("Файл является .xls (Microsoft Excel 97-2003)")
                         return 'xls'
                     else:
-                        print(f"Неизвестный формат файла. Заголовок: {header}")
                         return 'unknown'
 
         except Exception as e:
@@ -1320,17 +1318,6 @@ class MainWindow(QMainWindow):
                                 course_from_sheet = f'{course_num} курс'
                                 break
 
-                        # Отладочная печать
-                        print(f"Импорт листа: {sheet_name}")
-                        print(f"Колонки: {list(df.columns)}")
-                        print(f"Первые 3 строки:")
-
-                        for i in range(min(3, len(df))):
-                            print(f"Строка {i}:")
-                            for col in df.columns:
-                                if pd.notna(df.iloc[i][col]):
-                                    print(f"  {col}: {df.iloc[i][col]}")
-
                         # Импортируем данные
                         for index, row in df.iterrows():
                             # Пропускаем пустые строки
@@ -1351,12 +1338,10 @@ class MainWindow(QMainWindow):
                                     self.db.add_applicant(self.user_data['id'], applicant_data)
                                     imported_count += 1
                                 except Exception as e:
-                                    print(f"  Ошибка добавления в БД: {e}")
                                     skipped_count += 1
                             else:
                                 skipped_count += 1
 
-                        print(f"Лист {sheet_name}: импортировано {imported_count}, пропущено {skipped_count}")
 
                     except Exception as e:
                         error_msg = f"Ошибка импорта листа {sheet_name}: {e}"
