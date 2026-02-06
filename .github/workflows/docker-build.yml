@@ -8,60 +8,145 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.10']
+        architecture: ['x86', 'x64']
+        include:
+          - python-version: '3.8'
+            architecture: 'x86'
+            windows-version: '7'
+          - python-version: '3.8'
+            architecture: 'x64'
+            windows-version: '7'
+          - python-version: '3.10'
+            architecture: 'x86'
+            windows-version: '10'
+          - python-version: '3.10'
+            architecture: 'x64'
+            windows-version: '10'
+
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Setup Python
+
+    - name: Setup Python ${{ matrix.python-version }} (${{ matrix.architecture }})
       uses: actions/setup-python@v5
       with:
-        python-version: '3.12'  # Используйте 3.10, 3.11 или 3.12
-    
+        python-version: ${{ matrix.python-version }}
+        architecture: ${{ matrix.architecture }}
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller    
-    - name: Build with PyInstaller
+        pip install pyinstaller==5.13.0
+
+    - name: Check Python architecture
       run: |
-        # Проверяем наличие необходимых файлов
-        if (!(Test-Path "main.py")) { throw "main.py not found!" }
-        if (!(Test-Path "app.ui")) { Write-Host "Warning: app.ui not found" }
+        python -c "import platform; print(f'Python version: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}')"
+
+    - name: Build executable
+      run: |
+        # Для Windows 7 используем дополнительные флаги
+        $pyinstaller_args = @(
+          "--onefile",
+          "--windowed",
+          "--name=AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}",
+          "--clean",
+          "--noconfirm",
+          "--distpath=dist_${{ matrix.windows-version }}_${{ matrix.architecture }}",
+          "--hidden-import=PyQt5",
+          "--hidden-import=PyQt5.QtCore",
+          "--hidden-import=PyQt5.QtGui",
+          "--hidden-import=PyQt5.QtWidgets",
+          "--hidden-import=pandas",
+          "--hidden-import=numpy",
+          "--hidden-import=openpyxl",
+          "--hidden-import=sqlite3"
+        )
         
-        # Собираем приложение
-        pyinstaller `
-          --onefile `
-          --windowed `
-          --name="AgiAnalytics" `
-          --icon="icon.ico" `
-          --add-data="app.ui;." `
-          --hidden-import=PyQt6 `
-          --hidden-import=PyQt6.QtCore `
-          --hidden-import=PyQt6.QtGui `
-          --hidden-import=PyQt6.QtWidgets `
-          --hidden-import=pandas `
-          --hidden-import=numpy `
-          --hidden-import=openpyxl `
-          --hidden-import=matplotlib `
-          --clean `
-          --noconfirm `
-          main.py
+        # Для Windows 7 отключаем UPX и добавляем специальные флаги
+        if ("${{ matrix.windows-version }}" -eq "7") {
+          $pyinstaller_args += @("--noupx", "--disable-windowed-traceback")
+        }
+        
+        # Добавляем иконку если есть
+        if (Test-Path "icon.ico") {
+          $pyinstaller_args += @("--icon=icon.ico")
+        }
+        
+        # Добавляем основной файл
+        $pyinstaller_args += @("main.py")
+        
+        Write-Host "Сборка с параметрами: $pyinstaller_args"
+        pyinstaller @pyinstaller_args
         
         # Проверяем результат
-        if (Test-Path "dist\AgiAnalytics.exe") {
-          $size = (Get-Item "dist\AgiAnalytics.exe").Length
-          Write-Host "✅ Build successful! File size: $size bytes"
+        $exe_path = "dist_${{ matrix.windows-version }}_${{ matrix.architecture }}/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe"
+        if (Test-Path $exe_path) {
+          $size = (Get-Item $exe_path).Length
+          Write-Host "✅ Build successful! File: $exe_path"
+          Write-Host "📏 File size: $size bytes"
         } else {
           Write-Error "❌ Build failed - executable not found"
           exit 1
         }
 
-    
-    - name: Upload artifact
+    - name: Create artifacts directory
+      run: |
+        New-Item -ItemType Directory -Force -Path "artifacts"
+
+    - name: Copy artifacts
+      run: |
+        $source = "dist_${{ matrix.windows-version }}_${{ matrix.architecture }}/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe"
+        $destination = "artifacts/AgiAnalytics_Win${{ matrix.windows-version }}_${{ matrix.architecture }}.exe"
+        Copy-Item -Path $source -Destination $destination -Force
+
+    - name: Upload all artifacts
+      if: matrix.architecture == 'x64' && matrix.windows-version == '10'
       uses: actions/upload-artifact@v4
       with:
-        name: AgiAnalytics-Windows
-        path: dist/AgiAnalytics.exe
-        retention-days: 7
+        name: AgiAnalytics-Windows-All
+        path: artifacts/*
+        retention-days: 30
+
+  create-release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: AgiAnalytics-Windows-All
+        path: release_artifacts
+
+    - name: Create release archive
+      run: |
+        cd release_artifacts
+        tar -czvf ../AgiAnalytics_Windows_All.zip *
+        cd ..
+        echo "Archive created: AgiAnalytics_Windows_All.zip"
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: AgiAnalytics_Windows_All.zip
+        tag_name: v${{ github.run_number }}
+        name: Release v${{ github.run_number }}
+        body: |
+          # AgiAnalytics Windows Builds
+          
+          Содержит версии для:
+          - Windows 7 (32-bit и 64-bit)
+          - Windows 10 (32-bit и 64-bit)
+          
+          ## Системные требования
+          - Windows 7 SP1 или новее
+          - .NET Framework 4.5 (для Windows 7)
+          - 2 ГБ ОЗУ
+          - 100 МБ свободного места на диске

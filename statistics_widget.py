@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
-# statistics_widget.py
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QPushButton, QScrollArea, QFrame,
                              QGridLayout, QSizePolicy)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QFont, QColor
 
 
 class StatisticsCard(QFrame):
@@ -144,6 +140,12 @@ class CourseSection(QFrame):
         course_label.setFont(course_font)
         course_label.setStyleSheet("color: #2c3e50;")
         course_layout.addWidget(course_label)
+
+        # Если есть факультет, добавляем его
+        if self.stats.get('faculty'):
+            faculty_label = QLabel(f"({self.stats.get('faculty')})")
+            faculty_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
+            course_layout.addWidget(faculty_label)
 
         header_layout.addWidget(course_container)
         header_layout.addStretch()
@@ -432,12 +434,12 @@ class StatisticsWidget(QWidget):
             self.course_combo.addItems(['Все курсы', '1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
         else:
             # Для обычного пользователя только его курс
-            user_info = self.db.conn.execute(
-                'SELECT course FROM users WHERE id = ?',
-                (self.user_id,)
-            ).fetchone()
+            user_info = self.db.get_user_by_id(self.user_id)
             user_course = user_info['course'] if user_info else '1 курс'
-            self.course_combo.addItems([user_course])
+            if user_course:
+                self.course_combo.addItems([user_course])
+            else:
+                self.course_combo.addItems(['1 курс'])
             self.course_combo.setEnabled(False)
 
         # Категория
@@ -460,6 +462,36 @@ class StatisticsWidget(QWidget):
             }
         """)
         self.category_combo.addItems(['Все категории', 'муж', 'жен', 'в/сл'])
+
+        # Факультет (только для админа)
+        # if self.role == 'admin':
+        #     faculty_label = QLabel("Факультет:")
+        #     faculty_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        #     self.faculty_combo = QComboBox()
+        #     self.faculty_combo.setStyleSheet("""
+        #         QComboBox {
+        #             padding: 8px;
+        #             border: 1px solid #bdc3c7;
+        #             border-radius: 6px;
+        #             background-color: white;
+        #             min-width: 150px;
+        #         }
+        #         QComboBox:hover {
+        #             border-color: #3498db;
+        #         }
+        #         QComboBox:focus {
+        #             border-color: #2980b9;
+        #         }
+        #     """)
+        #
+        #     # Загрузка факультетов из БД
+        #     faculties = self.db.get_all_faculties()
+        #     self.faculty_combo.addItem('Все факультеты')
+        #     for faculty in faculties:
+        #         self.faculty_combo.addItem(faculty)
+        #
+        #     controls_layout.addWidget(faculty_label)
+        #     controls_layout.addWidget(self.faculty_combo)
 
         # Кнопка обновления
         self.refresh_btn = QPushButton("🔄 Обновить")
@@ -556,20 +588,24 @@ class StatisticsWidget(QWidget):
         selected_course = self.course_combo.currentText()
         selected_category = self.category_combo.currentText()
 
+        # Получение факультета для админа
+        selected_faculty = None
+        # if self.role == 'admin' and hasattr(self, 'faculty_combo'):
+        #     selected_faculty = self.faculty_combo.currentText()
+        #     if selected_faculty == 'Все факультеты':
+        #         selected_faculty = None
+
         # Получение данных из БД
         if self.role == 'admin':
             if selected_course != 'Все курсы':
-                stats = self.db.get_statistics(self.user_id, self.role, selected_course)
+                stats = self.db.get_statistics(self.user_id, self.role, selected_course, selected_faculty)
                 self.display_course_stats(selected_course, stats, selected_category)
             else:
                 # Для всех курсов
-                self.display_all_courses_stats(selected_category)
+                self.display_all_courses_stats(selected_category, selected_faculty)
         else:
             # Для обычного пользователя
-            user_info = self.db.conn.execute(
-                'SELECT course FROM users WHERE id = ?',
-                (self.user_id,)
-            ).fetchone()
+            user_info = self.db.get_user_by_id(self.user_id)
             user_course = user_info['course'] if user_info else '1 курс'
             stats = self.db.get_statistics(self.user_id, self.role, user_course)
             self.display_course_stats(user_course, stats, selected_category)
@@ -580,9 +616,13 @@ class StatisticsWidget(QWidget):
     def display_course_stats(self, course_name, stats, category_filter):
         """Отображение статистики по одному курсу"""
         if stats and stats[0]['total'] > 0:
-            stats_dict = self.filter_by_category(dict(stats[0]), category_filter)
-            section = CourseSection(course_name, stats_dict)
-            self.scroll_layout.addWidget(section)
+            for stat in stats:
+                stats_dict = self.filter_by_category(dict(stat), category_filter)
+                section_title = f"{course_name}"
+                if stats_dict.get('faculty'):
+                    section_title = f"{course_name} - {stats_dict['faculty']}"
+                section = CourseSection(section_title, stats_dict)
+                self.scroll_layout.addWidget(section)
 
             # Обновляем информационную панель
             self.info_label.setText(f"📊 Отображается статистика по курсу: {course_name}")
@@ -592,24 +632,29 @@ class StatisticsWidget(QWidget):
             self.scroll_layout.addWidget(empty_state)
             self.info_panel.setVisible(False)
 
-    def display_all_courses_stats(self, category_filter):
+    def display_all_courses_stats(self, category_filter, faculty_filter=None):
         """Отображение статистики по всем курсам"""
-        courses = ['1 курс', '2 курс', '3 курс', '4 курс', '5 курс']
+        stats = self.db.get_statistics(self.user_id, 'admin', None, faculty_filter)
         has_data = False
 
-        for course in courses:
-            stats = self.db.get_statistics(self.user_id, 'admin', course)
-            if stats and stats[0]['total'] > 0:
-                has_data = True
-                stats_dict = self.filter_by_category(dict(stats[0]), category_filter)
-                section = CourseSection(course, stats_dict)
-                self.scroll_layout.addWidget(section)
+        if stats:
+            for stat in stats:
+                stat_dict = dict(stat)
+                if stat_dict['total'] > 0:
+                    has_data = True
+                    stats_dict = self.filter_by_category(stat_dict, category_filter)
+                    section_title = f"{stat_dict['course']}"
+                    if stat_dict.get('faculty'):
+                        section_title = f"{stat_dict['course']} - {stat_dict['faculty']}"
+                    section = CourseSection(section_title, stats_dict)
+                    self.scroll_layout.addWidget(section)
 
         if has_data:
-            self.info_label.setText("📊 Отображается статистика по всем курсам")
+            self.info_label.setText(f"📊 Отображается статистика по всем курсам")
             self.info_panel.setVisible(True)
         else:
-            empty_state = EmptyStateWidget("Нет данных ни по одному курсу")
+            faculty_text =  ""
+            empty_state = EmptyStateWidget(f"Нет данных ни по одному курсу {faculty_text}")
             self.scroll_layout.addWidget(empty_state)
             self.info_panel.setVisible(False)
 

@@ -225,83 +225,82 @@ QTableWidget QScrollBar::handle:vertical:hover {
         </item>
        </layout>
       </widget>
-      <!-- Обновленная секция статистики -->
-<widget class="QWidget" name="statsTab">
-    <attribute name="title">
+      <widget class="QWidget" name="statsTab">
+       <attribute name="title">
         <string>📊 Статистика</string>
-    </attribute>
-    <layout class="QVBoxLayout" name="verticalLayout_3">
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_3">
         <property name="spacing">
-            <number>10</number>
+         <number>10</number>
         </property>
         <item>
-            <widget class="QLabel" name="statisticsTitle">
-                <property name="text">
-                    <string>📊 Статистика</string>
-                </property>
-                <property name="alignment">
-                    <set>Qt::AlignCenter</set>
-                </property>
-                <property name="styleSheet">
-                    <string notr="true">font-size: 20px;
+         <widget class="QLabel" name="statisticsTitle">
+          <property name="text">
+           <string>📊 Статистика</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">font-size: 20px;
 font-weight: bold;
 color: #2c3e50;
 margin: 10px 0;
 padding: 10px;</string>
-                </property>
-            </widget>
+          </property>
+         </widget>
         </item>
         <item>
-            <widget class="QWidget" name="statsControls" native="true">
-                <property name="minimumHeight">
-                    <number>50</number>
-                </property>
-                <layout class="QHBoxLayout" name="horizontalLayout_2">
-                    <item>
-                        <widget class="QLabel" name="courseStatsLabel">
-                            <property name="text">
-                                <string>Курс:</string>
-                            </property>
-                            <property name="styleSheet">
-                                <string notr="true">font-weight: bold;
+         <widget class="QWidget" name="statsControls" native="true">
+          <property name="minimumHeight">
+           <number>50</number>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_2">
+           <item>
+            <widget class="QLabel" name="courseStatsLabel">
+             <property name="text">
+              <string>Курс:</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">font-weight: bold;
 color: #34495e;</string>
-                            </property>
-                        </widget>
-                    </item>
-                    <item>
-                        <widget class="QComboBox" name="statsCourseCombo">
-                            <item>
-                                <property name="text">
-                                    <string>Все курсы</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>1 курс</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>2 курс</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>3 курс</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>4 курс</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>5 курс</string>
-                                </property>
-                            </item>
-                            <property name="styleSheet">
-                                <string notr="true">QComboBox {
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="statsCourseCombo">
+             <item>
+              <property name="text">
+               <string>Все курсы</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>1 курс</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>2 курс</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>3 курс</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>4 курс</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>5 курс</string>
+              </property>
+             </item>
+             <property name="styleSheet">
+              <string notr="true">QComboBox {
     padding: 6px;
     border: 1px solid #bdc3c7;
     border-radius: 4px;
@@ -311,45 +310,45 @@ color: #34495e;</string>
 QComboBox:focus {
     border-color: #3498db;
 }</string>
-                            </property>
-                        </widget>
-                    </item>
-                    <item>
-                        <widget class="QLabel" name="categoryStatsLabel">
-                            <property name="text">
-                                <string>Категория:</string>
-                            </property>
-                            <property name="styleSheet">
-                                <string notr="true">font-weight: bold;
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="categoryStatsLabel">
+             <property name="text">
+              <string>Категория:</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">font-weight: bold;
 color: #34495e;
 margin-left: 15px;</string>
-                            </property>
-                        </widget>
-                    </item>
-                    <item>
-                        <widget class="QComboBox" name="statsCategoryCombo">
-                            <item>
-                                <property name="text">
-                                    <string>Все категории</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>муж</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>жен</string>
-                                </property>
-                            </item>
-                            <item>
-                                <property name="text">
-                                    <string>в/сл</string>
-                                </property>
-                            </item>
-                            <property name="styleSheet">
-                                <string notr="true">QComboBox {
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="statsCategoryCombo">
+             <item>
+              <property name="text">
+               <string>Все категории</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>муж</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>жен</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>в/сл</string>
+              </property>
+             </item>
+             <property name="styleSheet">
+              <string notr="true">QComboBox {
     padding: 6px;
     border: 1px solid #bdc3c7;
     border-radius: 4px;
@@ -359,32 +358,32 @@ margin-left: 15px;</string>
 QComboBox:focus {
     border-color: #3498db;
 }</string>
-                            </property>
-                        </widget>
-                    </item>
-                    <item>
-                        <spacer name="horizontalSpacer_2">
-                            <property name="orientation">
-                                <enum>Qt::Horizontal</enum>
-                            </property>
-                            <property name="sizeHint" stdset="0">
-                                <size>
-                                    <width>40</width>
-                                    <height>20</height>
-                                </size>
-                            </property>
-                        </spacer>
-                    </item>
-                    <item>
-                        <widget class="QPushButton" name="refreshButton">
-                            <property name="text">
-                                <string>🔄 Обновить</string>
-                            </property>
-                            <property name="maximumWidth">
-                                <number>120</number>
-                            </property>
-                            <property name="styleSheet">
-                                <string notr="true">QPushButton {
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_2">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="refreshButton">
+             <property name="text">
+              <string>🔄 Обновить</string>
+             </property>
+             <property name="maximumWidth">
+              <number>120</number>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">QPushButton {
     background-color: #2ecc71;
     color: white;
     border: none;
@@ -398,19 +397,19 @@ QPushButton:hover {
 QPushButton:pressed {
     background-color: #219653;
 }</string>
-                            </property>
-                        </widget>
-                    </item>
-                    <item>
-                        <widget class="QPushButton" name="logoutButton">
-                            <property name="text">
-                                <string>🚪 Выход</string>
-                            </property>
-                            <property name="maximumWidth">
-                                <number>100</number>
-                            </property>
-                            <property name="styleSheet">
-                                <string notr="true">QPushButton {
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="logoutButton">
+             <property name="text">
+              <string>🚪 Выход</string>
+             </property>
+             <property name="maximumWidth">
+              <number>100</number>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">QPushButton {
     background-color: #e74c3c;
     color: white;
     border: none;
@@ -424,19 +423,19 @@ QPushButton:hover {
 QPushButton:pressed {
     background-color: #a93226;
 }</string>
-                            </property>
-                        </widget>
-                    </item>
-                </layout>
+             </property>
             </widget>
+           </item>
+          </layout>
+         </widget>
         </item>
         <item>
-            <widget class="QScrollArea" name="scrollArea">
-                <property name="widgetResizable">
-                    <bool>true</bool>
-                </property>
-                <property name="styleSheet">
-                    <string notr="true">QScrollArea {
+         <widget class="QScrollArea" name="scrollArea">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QScrollArea {
     border: 1px solid #ddd;
     border-radius: 8px;
     background-color: #f8f9fa;
@@ -444,55 +443,370 @@ QPushButton:pressed {
 QScrollArea > QWidget > QWidget {
     background-color: transparent;
 }</string>
-                </property>
-                <widget class="QWidget" name="scrollAreaWidgetContents">
-                    <property name="geometry">
-                        <rect>
-                            <x>0</x>
-                            <y>0</y>
-                            <width>1162</width>
-                            <height>544</height>
-                        </rect>
-                    </property>
-                    <layout class="QVBoxLayout" name="verticalLayout_4">
-                        <property name="spacing">
-                            <number>20</number>
-                        </property>
-                        <property name="leftMargin">
-                            <number>20</number>
-                        </property>
-                        <property name="topMargin">
-                            <number>20</number>
-                        </property>
-                        <property name="rightMargin">
-                            <number>20</number>
-                        </property>
-                        <property name="bottomMargin">
-                            <number>20</number>
-                        </property>
-                    </layout>
-                </widget>
-            </widget>
+          </property>
+          <widget class="QWidget" name="scrollAreaWidgetContents">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+             <y>0</y>
+             <width>1162</width>
+             <height>544</height>
+            </rect>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout_4">
+            <property name="spacing">
+             <number>20</number>
+            </property>
+            <property name="leftMargin">
+             <number>20</number>
+            </property>
+            <property name="topMargin">
+             <number>20</number>
+            </property>
+            <property name="rightMargin">
+             <number>20</number>
+            </property>
+            <property name="bottomMargin">
+             <number>20</number>
+            </property>
+           </layout>
+          </widget>
+         </widget>
         </item>
         <item>
-            <widget class="QLabel" name="infoLabel">
-                <property name="text">
-                    <string></string>
-                </property>
-                <property name="alignment">
-                    <set>Qt::AlignCenter</set>
-                </property>
-                <property name="styleSheet">
-                    <string notr="true">color: #7f8c8d;
+         <widget class="QLabel" name="infoLabel">
+          <property name="text">
+           <string></string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">color: #7f8c8d;
 font-style: italic;
 font-size: 12px;
 padding: 5px;
 margin-top: 5px;</string>
-                </property>
-            </widget>
+          </property>
+         </widget>
         </item>
-    </layout>
-</widget>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="settingsTab">
+       <attribute name="title">
+        <string>⚙️ Настройки (админ)</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_5">
+        <item>
+         <widget class="QTabWidget" name="adminTabs">
+          <property name="styleSheet">
+           <string notr="true">QTabWidget::pane {
+    border: 1px solid #ddd;
+    background-color: white;
+    border-radius: 5px;
+}
+QTabBar::tab {
+    background-color: #f8f9fa;
+    padding: 10px 15px;
+    margin-right: 2px;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    font-weight: bold;
+    color: #555;
+}
+QTabBar::tab:selected {
+    background-color: #3498db;
+    color: white;
+    border-color: #2980b9;
+}
+QTabBar::tab:hover {
+    background-color: #e9ecef;
+}</string>
+          </property>
+          <widget class="QWidget" name="usersTab">
+           <attribute name="title">
+            <string>👥 Пользователи</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout_6">
+            <item>
+             <widget class="QWidget" name="userControls" native="true">
+              <layout class="QHBoxLayout" name="horizontalLayout_3">
+               <item>
+                <widget class="QPushButton" name="addUserBtn">
+                 <property name="text">
+                  <string>➕ Добавить пользователя</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton {
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #27ae60;
+}
+QPushButton:pressed {
+    background-color: #219653;
+}</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="editUserBtn">
+                 <property name="text">
+                  <string>✏️ Редактировать</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #2980b9;
+}
+QPushButton:pressed {
+    background-color: #1c6ea4;
+}</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="deleteUserBtn">
+                 <property name="text">
+                  <string>🗑️ Удалить</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #c0392b;
+}
+QPushButton:pressed {
+    background-color: #a93226;
+}</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer_3">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QLineEdit" name="searchUserInput">
+                 <property name="placeholderText">
+                  <string>Поиск пользователей...</string>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>250</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QLineEdit {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+}
+QLineEdit:focus {
+    border-color: #3498db;
+}</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="usersTable">
+              <property name="styleSheet">
+               <string notr="true">QTableWidget {
+    background-color: white;
+    alternate-background-color: #f9f9f9;
+    gridline-color: #ddd;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+QTableWidget::item {
+    padding: 6px;
+}
+QHeaderView::section {
+    background-color: #34495e;
+    color: white;
+    padding: 8px;
+    border: 1px solid #2c3e50;
+    font-weight: bold;
+    font-size: 12px;
+}</string>
+              </property>
+              <property name="alternatingRowColors">
+               <bool>true</bool>
+              </property>
+              <property name="selectionBehavior">
+               <enum>QAbstractItemView::SelectRows</enum>
+              </property>
+              <property name="columnCount">
+               <number>5</number>
+              </property>
+              <attribute name="horizontalHeaderVisible">
+               <bool>true</bool>
+              </attribute>
+              <attribute name="horizontalHeaderStretchLastSection">
+               <bool>true</bool>
+              </attribute>
+              <attribute name="verticalHeaderVisible">
+               <bool>false</bool>
+              </attribute>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="permissionsTab">
+           <attribute name="title">
+            <string>🔒 Права доступа</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout_7">
+            <item>
+             <widget class="QWidget" name="permissionControls" native="true">
+              <layout class="QHBoxLayout" name="horizontalLayout_4">
+               <item>
+                <widget class="QLabel" name="userLabel">
+                 <property name="text">
+                  <string>Пользователь:</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">font-weight: bold;</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="userCombo">
+                 <property name="styleSheet">
+                  <string notr="true">QComboBox {
+    padding: 6px;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    background-color: white;
+    min-width: 200px;
+}
+QComboBox:focus {
+    border-color: #3498db;
+}</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="addPermissionBtn">
+                 <property name="text">
+                  <string>➕ Добавить право</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton {
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #27ae60;
+}
+QPushButton:pressed {
+    background-color: #219653;
+}</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer_4">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="permissionsTable">
+              <property name="styleSheet">
+               <string notr="true">QTableWidget {
+    background-color: white;
+    alternate-background-color: #f9f9f9;
+    gridline-color: #ddd;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+QTableWidget::item {
+    padding: 6px;
+}
+QHeaderView::section {
+    background-color: #8e44ad;
+    color: white;
+    padding: 8px;
+    border: 1px solid #7d3c98;
+    font-weight: bold;
+    font-size: 12px;
+}</string>
+              </property>
+              <property name="alternatingRowColors">
+               <bool>true</bool>
+              </property>
+              <property name="selectionBehavior">
+               <enum>QAbstractItemView::SelectRows</enum>
+              </property>
+              <property name="columnCount">
+               <number>4</number>
+              </property>
+              <attribute name="horizontalHeaderVisible">
+               <bool>true</bool>
+              </attribute>
+              <attribute name="horizontalHeaderStretchLastSection">
+               <bool>true</bool>
+              </attribute>
+              <attribute name="verticalHeaderVisible">
+               <bool>false</bool>
+              </attribute>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>
