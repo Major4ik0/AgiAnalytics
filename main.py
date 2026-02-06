@@ -488,34 +488,74 @@ class ImportDialog(QDialog):
                         os.unlink(temp_file.name)
                     return
 
-            # Пробуем прочитать файл
-            engine = None
-            if file_path.endswith('.xlsx'):
-                engine = 'openpyxl'
-            elif file_path.endswith('.xls'):
-                engine = 'xlrd'
-            else:
-                engine = 'openpyxl'
+            try:
+                # Определяем движок по расширению файла
+                if file_path.endswith('.xlsx'):
+                    engine = 'openpyxl'
+                elif file_path.endswith('.xls'):
+                    engine = 'xlrd'  # Для старых .xls файлов
+                else:
+                    engine = 'openpyxl'  # по умолчанию
 
-            xls = pd.ExcelFile(file_path, engine=engine)
-            available_sheets = xls.sheet_names
+                # Пробуем прочитать файл
+                try:
+                    xls = pd.ExcelFile(file_path, engine=engine)
+                    available_sheets = xls.sheet_names
 
-            # Создаем чекбоксы для каждого листа
-            for sheet in available_sheets:
-                checkbox = QCheckBox(sheet)
-                # Автоматически выбираем листы с "курс"
-                if 'курс' in sheet.lower():
-                    checkbox.setChecked(True)
-                self.sheet_checkboxes.append(checkbox)
-                self.sheet_layout.addWidget(checkbox)
+                    # Создаем чекбоксы для каждого листа
+                    for sheet in available_sheets:
+                        checkbox = QCheckBox(sheet)
+                        # Автоматически выбираем листы с "курс"
+                        if 'курс' in sheet.lower():
+                            checkbox.setChecked(True)
+                        self.sheet_checkboxes.append(checkbox)
+                        self.sheet_layout.addWidget(checkbox)
 
-            if temp_file and os.path.exists(temp_file.name):
-                os.unlink(temp_file.name)
+                except Exception as e:
+                    # Если не получилось с выбранным движком, пробуем другой
+                    error_msg = f"Ошибка с движком {engine}: {str(e)}. "
+
+                    # Пробуем другой движок
+                    alternative_engine = 'xlrd' if engine == 'openpyxl' else 'openpyxl'
+                    try:
+                        error_msg += f"Пробуем движок {alternative_engine}..."
+                        xls = pd.ExcelFile(file_path, engine=alternative_engine)
+                        available_sheets = xls.sheet_names
+
+                        # Создаем чекбоксы для каждого листа
+                        for sheet in available_sheets:
+                            checkbox = QCheckBox(sheet)
+                            # Автоматически выбираем листы с "курс"
+                            if 'курс' in sheet.lower():
+                                checkbox.setChecked(True)
+                            self.sheet_checkboxes.append(checkbox)
+                            self.sheet_layout.addWidget(checkbox)
+
+                    except Exception as e2:
+                        # Оба движка не работают
+                        error_msg += f" Ошибка: {str(e2)}"
+                        error_label = QLabel(f"Не удалось прочитать файл. {error_msg}")
+                        error_label.setStyleSheet("color: #e74c3c;")
+                        error_label.setWordWrap(True)
+                        self.sheet_layout.addWidget(error_label)
+
+            except Exception as e:
+                # Если ошибка чтения
+                error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
+                error_label.setStyleSheet("color: #e74c3c;")
+                error_label.setWordWrap(True)
+                self.sheet_layout.addWidget(error_label)
+
+            finally:
+                # Удаляем временный файл если был создан
+                if temp_file and os.path.exists(temp_file.name):
+                    os.unlink(temp_file.name)
 
         except Exception as e:
-            # Если ошибка чтения
-            error_label = QLabel(f"Ошибка чтения файла: {str(e)}")
+            # Общая ошибка
+            error_label = QLabel(f"Ошибка загрузки файла: {str(e)}")
             error_label.setStyleSheet("color: #e74c3c;")
+            error_label.setWordWrap(True)
             self.sheet_layout.addWidget(error_label)
 
     def select_all_sheets(self):
@@ -1172,6 +1212,34 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
 
+    def check_file_format(self, file_path):
+        """Проверка формата файла"""
+        try:
+            import zipfile
+
+            # Пробуем открыть как zip (для .xlsx)
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    print(f"Файл {file_path} является ZIP-архивом (.xlsx)")
+                    return 'xlsx'
+            except zipfile.BadZipFile:
+                print(f"Файл {file_path} не является ZIP-архивом, возможно .xls")
+
+                # Пробуем определить по магическим числам
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                    # Проверяем сигнатуры .xls
+                    if header[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1':
+                        print("Файл является .xls (Microsoft Excel 97-2003)")
+                        return 'xls'
+                    else:
+                        print(f"Неизвестный формат файла. Заголовок: {header}")
+                        return 'unknown'
+
+        except Exception as e:
+            print(f"Ошибка проверки формата файла: {e}")
+            return 'error'
+
     def import_excel_data(self, file_path, excel_password, selected_sheets):
         """Импорт данных из Excel файла"""
         try:
@@ -1193,7 +1261,7 @@ class MainWindow(QMainWindow):
                         file_path = temp_file.name
 
                 except Exception as e:
-                    return False, f"Неверный пароль Excel файла: {str(e)}"
+                    return False, f"Неверный пароль Excel файла или ошибка расшифровки: {str(e)}"
 
             try:
                 # Определяем движок для чтения Excel
@@ -1201,11 +1269,24 @@ class MainWindow(QMainWindow):
                 if file_path.endswith('.xlsx'):
                     engine = 'openpyxl'
                 elif file_path.endswith('.xls'):
-                    engine = 'xlrd'
+                    engine = 'xlrd'  # Для старых .xls файлов
                 else:
                     engine = 'openpyxl'  # по умолчанию
 
-                xls = pd.ExcelFile(file_path, engine=engine)
+                # Пробуем прочитать файл
+                try:
+                    xls = pd.ExcelFile(file_path, engine=engine)
+                except Exception as e:
+                    # Если не получилось с выбранным движком, пробуем другой
+                    if engine == 'openpyxl':
+                        engine = 'xlrd'
+                    else:
+                        engine = 'openpyxl'
+
+                    try:
+                        xls = pd.ExcelFile(file_path, engine=engine)
+                    except Exception as e2:
+                        return False, f"Не удалось прочитать файл. Возможно, файл поврежден или имеет неподдерживаемый формат. Ошибки: {str(e)}, {str(e2)}"
 
                 imported_count = 0
                 duplicate_count = 0
@@ -1220,7 +1301,6 @@ class MainWindow(QMainWindow):
 
                 for sheet_name in selected_sheets:
                     try:
-
                         # Читаем лист
                         df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
 
@@ -1234,6 +1314,16 @@ class MainWindow(QMainWindow):
                                 course_from_sheet = f'{course_num} курс'
                                 break
 
+                        # Отладочная печать
+                        print(f"Импорт листа: {sheet_name}")
+                        print(f"Колонки: {list(df.columns)}")
+                        print(f"Первые 3 строки:")
+
+                        for i in range(min(3, len(df))):
+                            print(f"Строка {i}:")
+                            for col in df.columns:
+                                if pd.notna(df.iloc[i][col]):
+                                    print(f"  {col}: {df.iloc[i][col]}")
 
                         # Импортируем данные
                         for index, row in df.iterrows():
@@ -1260,10 +1350,14 @@ class MainWindow(QMainWindow):
                             else:
                                 skipped_count += 1
 
+                        print(f"Лист {sheet_name}: импортировано {imported_count}, пропущено {skipped_count}")
+
                     except Exception as e:
-                        print(f"Ошибка импорта листа {sheet_name}: {e}")
+                        error_msg = f"Ошибка импорта листа {sheet_name}: {e}"
+                        print(error_msg)
                         import traceback
                         traceback.print_exc()
+                        # Продолжаем с другими листами
                         continue
 
                 # Удаляем временный файл если был создан
@@ -1283,16 +1377,18 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 if temp_file and os.path.exists(temp_file.name):
                     os.unlink(temp_file.name)
-                print(f"Ошибка чтения Excel файла: {e}")
+                error_msg = f"Ошибка чтения Excel файла: {str(e)}"
+                print(error_msg)
                 import traceback
                 traceback.print_exc()
-                return False, f"Ошибка чтения Excel файла: {str(e)}"
+                return False, error_msg
 
         except Exception as e:
-            print(f"Общая ошибка импорта: {e}")
+            error_msg = f"Общая ошибка импорта: {str(e)}"
+            print(error_msg)
             import traceback
             traceback.print_exc()
-            return False, f"Ошибка импорта: {str(e)}"
+            return False, error_msg
 
     def extract_applicant_data(self, row, df, course):
         """Извлечение данных абитуриента из строки Excel"""
