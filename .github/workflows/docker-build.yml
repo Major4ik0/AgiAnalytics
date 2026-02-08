@@ -50,7 +50,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           
-          if "${{ matrix.os_label }}" == "Win7" {
+          # Правильный синтаксис PowerShell для условий
+          if (${{ matrix.os_label }} -eq "Win7") {
             pip install numpy==1.21.6
             pip install pandas==1.3.5
             pip install PyQt5==5.15.4
@@ -116,7 +117,7 @@ jobs:
           $exePath = "dist\${{ matrix.exe_name }}.exe"
           if (Test-Path $exePath) {
             $fileSize = (Get-Item $exePath).Length / 1MB
-            Write-Host "✅ Build successful! Size: $fileSize MB"
+            Write-Host "Build successful! Size: $fileSize MB"
             
             # Для Windows 7 создаем дополнительный BAT файл
             if ("${{ matrix.os_label }}" -eq "Win7") {
@@ -139,7 +140,7 @@ jobs:
               Write-Host "Created compatibility launcher"
             }
           } else {
-            Write-Error "❌ Build failed!"
+            Write-Error "Build failed!"
             exit 1
           }
 
@@ -191,7 +192,7 @@ jobs:
             if (Test-Path "artifacts/AgiAnalytics_Win7_x86/Run_AgiAnalytics_Win7_x86.bat") {
               Copy-Item "artifacts/AgiAnalytics_Win7_x86/Run_AgiAnalytics_Win7_x86.bat" "$releaseDir\Windows_7_32bit\"
             }
-            Write-Host "✓ Windows 7 32-bit copied"
+            Write-Host "Windows 7 32-bit copied"
           }
           
           # Windows 7 64-bit
@@ -200,23 +201,23 @@ jobs:
             if (Test-Path "artifacts/AgiAnalytics_Win7_x64/Run_AgiAnalytics_Win7_x64.bat") {
               Copy-Item "artifacts/AgiAnalytics_Win7_x64/Run_AgiAnalytics_Win7_x64.bat" "$releaseDir\Windows_7_64bit\"
             }
-            Write-Host "✓ Windows 7 64-bit copied"
+            Write-Host "Windows 7 64-bit copied"
           }
           
           # Windows 10 32-bit
           if (Test-Path "artifacts/AgiAnalytics_Win10_x86/AgiAnalytics_Win10_x86.exe") {
             Copy-Item "artifacts/AgiAnalytics_Win10_x86/AgiAnalytics_Win10_x86.exe" "$releaseDir\Windows_10_32bit\"
-            Write-Host "✓ Windows 10 32-bit copied"
+            Write-Host "Windows 10 32-bit copied"
           }
           
           # Windows 10 64-bit
           if (Test-Path "artifacts/AgiAnalytics_Win10_x64/AgiAnalytics_Win10_x64.exe") {
             Copy-Item "artifacts/AgiAnalytics_Win10_x64/AgiAnalytics_Win10_x64.exe" "$releaseDir\Windows_10_64bit\"
-            Write-Host "✓ Windows 10 64-bit copied"
+            Write-Host "Windows 10 64-bit copied"
           }
           
           # Создаем README файл
-          $readmeContent = @'
+          $readmeContent = @"
           ========================================
           AgiAnalytics - Приложение для абитуриентов
           ========================================
@@ -224,14 +225,14 @@ jobs:
           Версия: $version
           Дата сборки: $(Get-Date -Format "yyyy-MM-dd")
           
-          📁 СОДЕРЖАНИЕ АРХИВА:
+          СОДЕРЖАНИЕ АРХИВА:
           
           1. Windows_7_32bit/    - Для Windows 7 (32-bit)
           2. Windows_7_64bit/    - Для Windows 7 (64-bit)
           3. Windows_10_32bit/   - Для Windows 10 (32-bit)
           4. Windows_10_64bit/   - Для Windows 10 (64-bit)
           
-          🚀 ИНСТРУКЦИЯ:
+          ИНСТРУКЦИЯ:
           
           Для Windows 10:
           1. Откройте папку Windows_10_32bit или Windows_10_64bit
@@ -242,17 +243,17 @@ jobs:
           2. Запустите файл Run_*.bat (рекомендуется)
           3. Или запустите файл .exe напрямую
           
-          ⚠️ ВАЖНО ДЛЯ WINDOWS 7:
+          ВАЖНО ДЛЯ WINDOWS 7:
           
           Перед запуском установите:
           • Visual C++ Redistributable 2015-2022
           • Обновление KB2999226 (Universal C Runtime)
           • Все обновления Windows
           
-          📞 ПОДДЕРЖКА:
+          ПОДДЕРЖКА:
           
           GitHub Issues: https://github.com/${{ github.repository }}/issues
-          '@
+          "@
           
           Set-Content -Path "$releaseDir\README.txt" -Value $readmeContent -Encoding UTF8
           
@@ -301,7 +302,7 @@ jobs:
           Write-Host "Creating ZIP archive..."
           Compress-Archive -Path "$releaseDir\*" -DestinationPath "AgiAnalytics_v$version.zip" -Force
           
-          Write-Host "✅ Release package created: AgiAnalytics_v$version.zip"
+          Write-Host "Release package created: AgiAnalytics_v$version.zip"
           Write-Host "Archive size: $((Get-Item "AgiAnalytics_v$version.zip").Length / 1MB) MB"
 
       - name: Upload release package
@@ -323,32 +324,32 @@ jobs:
             
             Полная сборка для всех версий Windows.
             
-            ## 📦 Содержимое архива:
+            ## Содержимое архива:
             
             | Версия Windows | Архитектура | Файлы |
             |----------------|-------------|-------|
-            | Windows 7 | 32-bit | `AgiAnalytics_Win7_x86.exe` + `Run_AgiAnalytics_Win7_x86.bat` |
-            | Windows 7 | 64-bit | `AgiAnalytics_Win7_x64.exe` + `Run_AgiAnalytics_Win7_x64.bat` |
-            | Windows 10 | 32-bit | `AgiAnalytics_Win10_x86.exe` |
-            | Windows 10 | 64-bit | `AgiAnalytics_Win10_x64.exe` |
+            | Windows 7 | 32-bit | AgiAnalytics_Win7_x86.exe + Run_AgiAnalytics_Win7_x86.bat |
+            | Windows 7 | 64-bit | AgiAnalytics_Win7_x64.exe + Run_AgiAnalytics_Win7_x64.bat |
+            | Windows 10 | 32-bit | AgiAnalytics_Win10_x86.exe |
+            | Windows 10 | 64-bit | AgiAnalytics_Win10_x64.exe |
             
-            ## 🚀 Быстрый старт:
+            ## Быстрый старт:
             
-            1. **Скачайте** архив
-            2. **Распакуйте** в любую папку
-            3. **Запустите** `Install.bat`
-            4. **Выберите** вашу версию Windows
-            5. **Запустите** программу
+            1. Скачайте архив
+            2. Распакуйте в любую папку
+            3. Запустите Install.bat
+            4. Выберите вашу версию Windows
+            5. Запустите программу
             
-            ## ⚠️ Для Windows 7:
+            ## Для Windows 7:
             
-            Используйте `Run_*.bat` файлы для лучшей совместимости.
+            Используйте Run_*.bat файлы для лучшей совместимости.
             
             Перед запуском установите:
-            - [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x86.exe)
-            - [Обновление KB2999226](https://support.microsoft.com/ru-ru/topic/обновление-для-универсальной-среды-выполнения-c-в-windows-c0514201-7fe6-95a3-b0a5-287930f3560c)
+            - Visual C++ Redistributable
+            - Обновление KB2999226
             
-            ## 🛠️ Технические детали:
+            ## Технические детали:
             
             | Параметр | Windows 7 | Windows 10 |
             |----------|-----------|------------|
@@ -356,6 +357,6 @@ jobs:
             | PyInstaller | 5.0.1 | 5.12.0 |
             | UPX | Отключен | Включен |
             
-            ## 📞 Поддержка:
+            ## Поддержка:
             
-            [Сообщить о проблеме](https://github.com/${{ github.repository }}/issues)
+            Сообщить о проблеме
