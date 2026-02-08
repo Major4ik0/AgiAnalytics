@@ -50,15 +50,9 @@ jobs:
             $content = $content -replace "console=False", "console=False`n    disable_windowed_traceback=True"
             
             # Добавляем hidden imports
-            if ($content -match "hiddenimports=\[") {
-              $content = $content -replace "hiddenimports=\[", @'
-              hiddenimports=[
-                  'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
-                  'pandas', 'numpy', 'numpy.core._multiarray_umath',
-                  'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',
-                  'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',
-                  'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'
-              '@
+              if ($content -match "hiddenimports=\[") {
+              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'`n"
+              $content = $content -replace "hiddenimports=\[", $replacement
             }
             
             Set-Content -Path $specFile -Value $content -Encoding UTF8
@@ -136,14 +130,8 @@ jobs:
             $content = $content -replace "console=False", "console=False`n    disable_windowed_traceback=True"
             
             if ($content -match "hiddenimports=\[") {
-              $content = $content -replace "hiddenimports=\[", @'
-              hiddenimports=[
-                  'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
-                  'pandas', 'numpy', 'numpy.core._multiarray_umath',
-                  'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',
-                  'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',
-                  'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'
-              '@
+                $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'`n"
+                $content = $content -replace "hiddenimports=\[", $replacement
             }
             
             Set-Content -Path $specFile -Value $content -Encoding UTF8
