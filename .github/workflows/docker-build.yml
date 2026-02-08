@@ -1,170 +1,378 @@
-name: Build AgiAnalytics for All Windows Versions
+name: Build Windows Executable
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 jobs:
-  build-all:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - os_label: "Win7"
-            python_version: "3.7.9"
-            architecture: "x86"
-            exe_name: "AgiAnalytics_Win7_x86"
-            upx: "--noupx"
-            extra_args: "--disable-windowed-traceback"
-          - os_label: "Win7"
-            python_version: "3.7.9"
-            architecture: "x64"
-            exe_name: "AgiAnalytics_Win7_x64"
-            upx: "--noupx"
-            extra_args: "--disable-windowed-traceback"
-          - os_label: "Win10"
-            python_version: "3.8.10"
-            architecture: "x86"
-            exe_name: "AgiAnalytics_Win10_x86"
-            upx: ""
-            extra_args: ""
-          - os_label: "Win10"
-            python_version: "3.8.10"
-            architecture: "x64"
-            exe_name: "AgiAnalytics_Win10_x64"
-            upx: ""
-            extra_args: ""
+  build-win7-x86:
+    name: Build Windows 7 (x86)
+    runs-on: windows-2019
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python ${{ matrix.python_version }} (${{ matrix.architecture }})
+      - name: Setup Python 3.8.10 (x86)
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python_version }}
-          architecture: ${{ matrix.architecture }}
+          python-version: '3.8.10'
+          architecture: x86
 
-      - name: Install dependencies for ${{ matrix.os_label }}
-        shell: pwsh
+      - name: Install dependencies for Windows 7 (x86)
         run: |
-          python -m pip install --upgrade pip
-          
-          # Используем переменные окружения для определения версии
-          $os_label = "${{ matrix.os_label }}"
-          
-          if ($os_label -eq "Win7") {
-            pip install numpy==1.21.6
-            pip install pandas==1.3.5
-            pip install PyQt5==5.15.4
-            pip install pyinstaller==5.0.1
-            pip install openpyxl==3.0.9
-            pip install xlrd==2.0.1
-            pip install pillow==8.4.0
-          } else {
-            pip install numpy==1.24.3
-            pip install pandas==1.5.3
-            pip install PyQt5==5.15.9
-            pip install pyinstaller==5.12.0
-            pip install openpyxl==3.1.2
-            pip install pillow==9.5.0
-          }
-          
-          Write-Host "Dependencies installed for $os_label ${{ matrix.architecture }}"
+          python -m pip install --upgrade pip==20.3.4
+          pip install wheel==0.34.2
+          pip install setuptools==44.0.0
+          pip install numpy==1.19.3
+          pip install pandas==1.3.5
+          pip install PyQt5==5.15.4
+          pip install pyinstaller==5.0.1
+          pip install openpyxl==3.0.9
+          pip install xlrd==2.0.1
+          pip install pillow==8.4.0
 
-      - name: Build ${{ matrix.exe_name }}
-        shell: pwsh
+      - name: Create custom spec file for Windows 7
         run: |
-          # Очищаем предыдущие сборки
-          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
-          
-          $exe_name = "${{ matrix.exe_name }}"
-          Write-Host "Building $exe_name..."
-          
-          # Базовые параметры PyInstaller
-          $pyinstallerArgs = @(
-            "--onefile",
-            "--windowed",
-            "--name=$exe_name",
-            "--clean",
-            "--hidden-import=PyQt5",
-            "--hidden-import=PyQt5.QtCore",
-            "--hidden-import=PyQt5.QtGui",
-            "--hidden-import=PyQt5.QtWidgets",
-            "--hidden-import=pandas",
-            "--hidden-import=numpy",
-            "--hidden-import=numpy.core._multiarray_umath",
-            "--hidden-import=openpyxl",
-            "--hidden-import=sqlite3",
-            "main.py"
+          $specContent = @"
+          # -*- mode: python ; coding: utf-8 -*-
+          a = Analysis(
+              ['main.py'],
+              pathex=[],
+              binaries=[],
+              datas=[],
+              hiddenimports=[
+                  'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
+                  'pandas', 'numpy', 'numpy.core._multiarray_umath',
+                  'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',
+                  'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',
+                  'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'
+              ],
+              hookspath=[],
+              hooksconfig={},
+              runtime_hooks=[],
+              excludes=['tkinter'],
+              win_no_prefer_redirects=False,
+              win_private_assemblies=False,
+              cipher=None,
+              noarchive=False
           )
           
-          # Добавляем специфичные параметры
-          $upx = "${{ matrix.upx }}"
-          $extra_args = "${{ matrix.extra_args }}"
+          # Убираем все оптимизации для Windows 7
+          pyz = PYZ(a.pure, a.zipped_data, cipher=None)
           
-          if ($upx -ne "") {
-            $pyinstallerArgs += $upx
-          }
+          exe = EXE(
+              pyz,
+              a.scripts,
+              a.binaries,
+              a.zipfiles,
+              a.datas,
+              [],
+              name='AgiAnalytics_Win7_x86',
+              debug=False,
+              bootloader_ignore_signals=False,
+              strip=False,
+              upx=False,
+              console=False,
+              disable_windowed_traceback=True,
+              argv_emulation=False,
+              target_arch='x86',
+              codesign_identity=None,
+              entitlements_file=None,
+              icon=['icon.ico'] if os.path.exists('icon.ico') else None
+          )
+          "@
           
-          if ($extra_args -ne "") {
-            $pyinstallerArgs += $extra_args
-          }
+          Set-Content -Path "win7_spec.spec" -Value $specContent -Encoding UTF8
+
+      - name: Build executable for Windows 7 (x86)
+        run: |
+          $exe_name = "AgiAnalytics_Win7_x86"
+          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           
-          # Добавляем иконку если есть
-          if (Test-Path "icon.ico") {
-            $pyinstallerArgs += "--icon=icon.ico"
-          }
+          # Используем питоновский путь для гарантии
+          $pythonPath = python -c "import sys; print(sys.executable)"
+          & "$pythonPath" -m PyInstaller `
+            --specpath . `
+            --workpath build_win7_x86 `
+            --distpath dist `
+            --clean `
+            --noconfirm `
+            win7_spec.spec
           
-          # Выполняем сборку
-          Write-Host "Running: pyinstaller $pyinstallerArgs"
-          pyinstaller @pyinstallerArgs
-          
-          # Проверяем результат
-          $exePath = "dist\$exe_name.exe"
-          if (Test-Path $exePath) {
-            $fileSize = (Get-Item $exePath).Length / 1MB
-            Write-Host "Build successful! Size: $fileSize MB"
-            
-            # Для Windows 7 создаем дополнительный BAT файл
-            $os_label = "${{ matrix.os_label }}"
-            if ($os_label -eq "Win7") {
-              $batContent = @"
-              @echo off
-              echo ========================================
-              echo AgiAnalytics - Windows 7 Compatibility
-              echo ========================================
-              echo.
-              echo Для Windows 7 рекомендуем:
-              echo 1. Установить Visual C++ Redistributable
-              echo 2. Установить обновление KB2999226
-              echo 3. Установить все обновления Windows
-              echo.
-              echo Запуск программы...
-              start "" "%~dp0$exe_name.exe"
-              pause
-              "@
-              Set-Content -Path "dist\Run_$exe_name.bat" -Value $batContent -Encoding ASCII
-              Write-Host "Created compatibility launcher"
-            }
+          if (Test-Path "dist/$exe_name/$exe_name.exe") {
+            Copy-Item "dist/$exe_name/$exe_name.exe" "dist/$exe_name.exe"
+            Write-Host "✅ Сборка успешна для Windows 7 x86"
           } else {
-            Write-Error "Build failed!"
+            Write-Error "❌ Ошибка сборки для Windows 7 x86"
+            Get-ChildItem -Recurse | Where-Object { $_.Name -like "*.exe" -or $_.Name -like "*.log" } | Select-Object Name, FullName
             exit 1
           }
 
-      - name: Upload ${{ matrix.exe_name }} artifact
+      - name: Upload Windows 7 x86 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.exe_name }}
-          path: |
-            dist/${{ matrix.exe_name }}.exe
-            dist/Run_${{ matrix.exe_name }}.bat
+          name: AgiAnalytics-Win7-x86
+          path: dist/AgiAnalytics_Win7_x86.exe
 
-  package-release:
-    name: Create Release Package
-    needs: [build-all]
+  build-win7-x64:
+    name: Build Windows 7 (x64)
+    runs-on: windows-2019
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.8.10 (x64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.10'
+          architecture: x64
+
+      - name: Install dependencies for Windows 7 (x64)
+        run: |
+          python -m pip install --upgrade pip==20.3.4
+          pip install wheel==0.34.2
+          pip install setuptools==44.0.0
+          pip install numpy==1.19.3
+          pip install pandas==1.3.5
+          pip install PyQt5==5.15.4
+          pip install pyinstaller==5.0.1
+          pip install openpyxl==3.0.9
+          pip install xlrd==2.0.1
+          pip install pillow==8.4.0
+
+      - name: Create custom spec file for Windows 7 x64
+        run: |
+          $specContent = @"
+          # -*- mode: python ; coding: utf-8 -*-
+          a = Analysis(
+              ['main.py'],
+              pathex=[],
+              binaries=[],
+              datas=[],
+              hiddenimports=[
+                  'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
+                  'pandas', 'numpy', 'numpy.core._multiarray_umath',
+                  'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',
+                  'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',
+                  'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'
+              ],
+              hookspath=[],
+              hooksconfig={},
+              runtime_hooks=[],
+              excludes=['tkinter'],
+              win_no_prefer_redirects=False,
+              win_private_assemblies=False,
+              cipher=None,
+              noarchive=False
+          )
+          
+          pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+          
+          exe = EXE(
+              pyz,
+              a.scripts,
+              a.binaries,
+              a.zipfiles,
+              a.datas,
+              [],
+              name='AgiAnalytics_Win7_x64',
+              debug=False,
+              bootloader_ignore_signals=False,
+              strip=False,
+              upx=False,
+              console=False,
+              disable_windowed_traceback=True,
+              argv_emulation=False,
+              target_arch='x64',
+              codesign_identity=None,
+              entitlements_file=None,
+              icon=['icon.ico'] if os.path.exists('icon.ico') else None
+          )
+          "@
+          
+          Set-Content -Path "win7_x64_spec.spec" -Value $specContent -Encoding UTF8
+
+      - name: Build executable for Windows 7 (x64)
+        run: |
+          $exe_name = "AgiAnalytics_Win7_x64"
+          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
+          $pythonPath = python -c "import sys; print(sys.executable)"
+          & "$pythonPath" -m PyInstaller `
+            --specpath . `
+            --workpath build_win7_x64 `
+            --distpath dist `
+            --clean `
+            --noconfirm `
+            win7_x64_spec.spec
+          
+          if (Test-Path "dist/$exe_name/$exe_name.exe") {
+            Copy-Item "dist/$exe_name/$exe_name.exe" "dist/$exe_name.exe"
+            Write-Host "✅ Сборка успешна для Windows 7 x64"
+          } else {
+            Write-Error "❌ Ошибка сборки для Windows 7 x64"
+            exit 1
+          }
+
+      - name: Upload Windows 7 x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgiAnalytics-Win7-x64
+          path: dist/AgiAnalytics_Win7_x64.exe
+
+  build-win10-x86:
+    name: Build Windows 10 (x86)
     runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.9.13 (x86)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9.13'
+          architecture: x86
+
+      - name: Install dependencies for Windows 10 (x86)
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.24.3
+          pip install pandas==1.5.3
+          pip install PyQt5==5.15.9
+          pip install pyinstaller==5.12.0
+          pip install openpyxl==3.1.2
+          pip install pillow==9.5.0
+          pip install pywin32==306
+
+      - name: Build executable for Windows 10 (x86)
+        run: |
+          $exe_name = "AgiAnalytics_Win10_x86"
+          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
+          $pythonPath = python -c "import sys; print(sys.executable)"
+          & "$pythonPath" -m PyInstaller `
+            --onefile `
+            --windowed `
+            --name="$exe_name" `
+            --clean `
+            --noconfirm `
+            --distpath=dist `
+            --workpath=build_win10_x86 `
+            --specpath=specs `
+            --hidden-import=PyQt5 `
+            --hidden-import=PyQt5.QtCore `
+            --hidden-import=PyQt5.QtGui `
+            --hidden-import=PyQt5.QtWidgets `
+            --hidden-import=pandas `
+            --hidden-import=numpy `
+            --hidden-import=numpy.core._multiarray_umath `
+            --hidden-import=numpy.lib.format `
+            --hidden-import=openpyxl `
+            --hidden-import=openpyxl.cell._writer `
+            --hidden-import=openpyxl.utils `
+            --hidden-import=sqlite3 `
+            --hidden-import=sqlite3.dump `
+            --hidden-import=PIL `
+            --hidden-import=PIL._imaging `
+            --hidden-import=PIL.Image `
+            --hidden-import=win32timezone `
+            main.py
+          
+          if (Test-Path "dist/$exe_name.exe") {
+            Write-Host "✅ Сборка успешна для Windows 10 x86"
+          } else {
+            Write-Error "❌ Ошибка сборки для Windows 10 x86"
+            exit 1
+          }
+
+      - name: Upload Windows 10 x86 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgiAnalytics-Win10-x86
+          path: dist/AgiAnalytics_Win10_x86.exe
+
+  build-win10-x64:
+    name: Build Windows 10 (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.9.13 (x64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9.13'
+          architecture: x64
+
+      - name: Install dependencies for Windows 10 (x64)
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.24.3
+          pip install pandas==1.5.3
+          pip install PyQt5==5.15.9
+          pip install pyinstaller==5.12.0
+          pip install openpyxl==3.1.2
+          pip install pillow==9.5.0
+          pip install pywin32==306
+
+      - name: Build executable for Windows 10 (x64)
+        run: |
+          $exe_name = "AgiAnalytics_Win10_x64"
+          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
+          $pythonPath = python -c "import sys; print(sys.executable)"
+          & "$pythonPath" -m PyInstaller `
+            --onefile `
+            --windowed `
+            --name="$exe_name" `
+            --clean `
+            --noconfirm `
+            --distpath=dist `
+            --workpath=build_win10_x64 `
+            --specpath=specs `
+            --hidden-import=PyQt5 `
+            --hidden-import=PyQt5.QtCore `
+            --hidden-import=PyQt5.QtGui `
+            --hidden-import=PyQt5.QtWidgets `
+            --hidden-import=pandas `
+            --hidden-import=numpy `
+            --hidden-import=numpy.core._multiarray_umath `
+            --hidden-import=numpy.lib.format `
+            --hidden-import=openpyxl `
+            --hidden-import=openpyxl.cell._writer `
+            --hidden-import=openpyxl.utils `
+            --hidden-import=sqlite3 `
+            --hidden-import=sqlite3.dump `
+            --hidden-import=PIL `
+            --hidden-import=PIL._imaging `
+            --hidden-import=PIL.Image `
+            --hidden-import=win32timezone `
+            main.py
+          
+          if (Test-Path "dist/$exe_name.exe") {
+            Write-Host "✅ Сборка успешна для Windows 10 x64"
+          } else {
+            Write-Error "❌ Ошибка сборки для Windows 10 x64"
+            exit 1
+          }
+
+      - name: Upload Windows 10 x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgiAnalytics-Win10-x64
+          path: dist/AgiAnalytics_Win10_x64.exe
+
+  create-release:
+    name: Create Release Package
+    needs: [build-win7-x86, build-win7-x64, build-win10-x86, build-win10-x64]
+    runs-on: windows-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Download all artifacts
@@ -172,153 +380,136 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create organized release structure
-        shell: pwsh
+      - name: Create release structure
         run: |
-          $version = "${{ github.run_number }}"
-          $releaseDir = "AgiAnalytics_v$version"
+          New-Item -ItemType Directory -Force -Path "AgiAnalytics_v$env:GITHUB_RUN_NUMBER"
           
-          # Создаем основную папку
-          New-Item -ItemType Directory -Force -Path $releaseDir
+          # Создаем структуру папок
+          $folders = @("Windows_7_32bit", "Windows_7_64bit", "Windows_10_32bit", "Windows_10_64bit", "Dependencies")
+          foreach ($folder in $folders) {
+            New-Item -ItemType Directory -Force -Path "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\$folder"
+          }
           
-          # Создаем подпапки
-          $folders = @(
-            "Windows_7_32bit",
-            "Windows_7_64bit",
-            "Windows_10_32bit",
-            "Windows_10_64bit"
+          # Копируем исполняемые файлы
+          if (Test-Path "artifacts/AgiAnalytics-Win7-x86/AgiAnalytics_Win7_x86.exe") {
+            Copy-Item "artifacts/AgiAnalytics-Win7-x86/AgiAnalytics_Win7_x86.exe" "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\Windows_7_32bit\"
+          }
+          
+          if (Test-Path "artifacts/AgiAnalytics-Win7-x64/AgiAnalytics_Win7_x64.exe") {
+            Copy-Item "artifacts/AgiAnalytics-Win7-x64/AgiAnalytics_Win7_x64.exe" "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\Windows_7_64bit\"
+          }
+          
+          if (Test-Path "artifacts/AgiAnalytics-Win10-x86/AgiAnalytics_Win10_x86.exe") {
+            Copy-Item "artifacts/AgiAnalytics-Win10-x86/AgiAnalytics_Win10_x86.exe" "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\Windows_10_32bit\"
+          }
+          
+          if (Test-Path "artifacts/AgiAnalytics-Win10-x64/AgiAnalytics_Win10_x64.exe") {
+            Copy-Item "artifacts/AgiAnalytics-Win10-x64/AgiAnalytics_Win10_x64.exe" "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\Windows_10_64bit\"
+          }
+          
+          # Создаем запускатор
+          $launcherContent = @'
+          @echo off
+          chcp 65001 >nul
+          echo ========================================
+          echo   AgiAnalytics - Автоматический запуск
+          echo ========================================
+          echo.
+          echo Определение системы...
+          
+          set OS=
+          set ARCH=
+          set "PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%"
+          
+          :: Проверяем версию Windows
+          ver | findstr /i "6\.1" >nul && set OS=7
+          ver | findstr /i "10\." >nul && set OS=10
+          
+          :: Проверяем архитектуру
+          if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
+              set ARCH=x64
+          ) else (
+              set ARCH=x86
           )
           
-          foreach ($folder in $folders) {
-            New-Item -ItemType Directory -Force -Path "$releaseDir\$folder"
-          }
-          
-          # Копируем файлы в соответствующие папки
-          Write-Host "Copying files to release structure..."
-          
-          # Windows 7 32-bit
-          if (Test-Path "artifacts/AgiAnalytics_Win7_x86/AgiAnalytics_Win7_x86.exe") {
-            Copy-Item "artifacts/AgiAnalytics_Win7_x86/AgiAnalytics_Win7_x86.exe" "$releaseDir\Windows_7_32bit\"
-            if (Test-Path "artifacts/AgiAnalytics_Win7_x86/Run_AgiAnalytics_Win7_x86.bat") {
-              Copy-Item "artifacts/AgiAnalytics_Win7_x86/Run_AgiAnalytics_Win7_x86.bat" "$releaseDir\Windows_7_32bit\"
-            }
-            Write-Host "Windows 7 32-bit copied"
-          }
-          
-          # Windows 7 64-bit
-          if (Test-Path "artifacts/AgiAnalytics_Win7_x64/AgiAnalytics_Win7_x64.exe") {
-            Copy-Item "artifacts/AgiAnalytics_Win7_x64/AgiAnalytics_Win7_x64.exe" "$releaseDir\Windows_7_64bit\"
-            if (Test-Path "artifacts/AgiAnalytics_Win7_x64/Run_AgiAnalytics_Win7_x64.bat") {
-              Copy-Item "artifacts/AgiAnalytics_Win7_x64/Run_AgiAnalytics_Win7_x64.bat" "$releaseDir\Windows_7_64bit\"
-            }
-            Write-Host "Windows 7 64-bit copied"
-          }
-          
-          # Windows 10 32-bit
-          if (Test-Path "artifacts/AgiAnalytics_Win10_x86/AgiAnalytics_Win10_x86.exe") {
-            Copy-Item "artifacts/AgiAnalytics_Win10_x86/AgiAnalytics_Win10_x86.exe" "$releaseDir\Windows_10_32bit\"
-            Write-Host "Windows 10 32-bit copied"
-          }
-          
-          # Windows 10 64-bit
-          if (Test-Path "artifacts/AgiAnalytics_Win10_x64/AgiAnalytics_Win10_x64.exe") {
-            Copy-Item "artifacts/AgiAnalytics_Win10_x64/AgiAnalytics_Win10_x64.exe" "$releaseDir\Windows_10_64bit\"
-            Write-Host "Windows 10 64-bit copied"
-          }
-          
-          # Создаем README файл
-          $readmeContent = @"
-          ========================================
-          AgiAnalytics - Приложение для абитуриентов
-          ========================================
-          
-          Версия: $version
-          Дата сборки: $(Get-Date -Format "yyyy-MM-dd")
-          
-          СОДЕРЖАНИЕ АРХИВА:
-          
-          1. Windows_7_32bit/    - Для Windows 7 (32-bit)
-          2. Windows_7_64bit/    - Для Windows 7 (64-bit)
-          3. Windows_10_32bit/   - Для Windows 10 (32-bit)
-          4. Windows_10_64bit/   - Для Windows 10 (64-bit)
-          
-          ИНСТРУКЦИЯ:
-          
-          Для Windows 10:
-          1. Откройте папку Windows_10_32bit или Windows_10_64bit
-          2. Запустите файл .exe
-          
-          Для Windows 7:
-          1. Откройте папку Windows_7_32bit или Windows_7_64bit
-          2. Запустите файл Run_*.bat (рекомендуется)
-          3. Или запустите файл .exe напрямую
-          
-          ВАЖНО ДЛЯ WINDOWS 7:
-          
-          Перед запуском установите:
-          • Visual C++ Redistributable 2015-2022
-          • Обновление KB2999226 (Universal C Runtime)
-          • Все обновления Windows
-          
-          ПОДДЕРЖКА:
-          
-          GitHub Issues: https://github.com/${{ github.repository }}/issues
-          "@
-          
-          Set-Content -Path "$releaseDir\README.txt" -Value $readmeContent -Encoding UTF8
-          
-          # Создаем простой установочный скрипт
-          $installerScript = @'
-          @echo off
-          echo ========================================
-          echo AgiAnalytics - Установка
-          echo ========================================
           echo.
-          echo Выберите вашу версию Windows:
+          echo Обнаружено: Windows %OS% (%ARCH%)
           echo.
-          echo 1. Windows 7 (32-bit)
-          echo 2. Windows 7 (64-bit)
-          echo 3. Windows 10 (32-bit)
-          echo 4. Windows 10 (64-bit)
-          echo.
-          set /p choice="Введите номер [1-4]: "
           
-          if "%choice%"=="1" (
-              echo Открываю папку для Windows 7 32-bit...
-              explorer "Windows_7_32bit"
-          ) else if "%choice%"=="2" (
-              echo Открываю папку для Windows 7 64-bit...
-              explorer "Windows_7_64bit"
-          ) else if "%choice%"=="3" (
-              echo Открываю папку для Windows 10 32-bit...
-              explorer "Windows_10_32bit"
-          ) else if "%choice%"=="4" (
-              echo Открываю папку для Windows 10 64-bit...
-              explorer "Windows_10_64bit"
+          if "%OS%"=="7" (
+              echo ⚠️  ВАЖНО: Для Windows 7 требуются дополнительные компоненты
+              echo    1. Установите VC++ Redistributable из папки Dependencies
+              echo    2. Установите обновление KB2999226
+              echo    3. Установите все обновления Windows
+              echo.
+              echo Нажмите любую клавишу для продолжения...
+              pause >nul
+          )
+          
+          :: Запускаем соответствующую версию
+          if exist "Windows_%OS%_%ARCH%\AgiAnalytics_Win%OS%_%ARCH%.exe" (
+              echo Запуск AgiAnalytics_Win%OS%_%ARCH%.exe...
+              start "" "Windows_%OS%_%ARCH%\AgiAnalytics_Win%OS%_%ARCH%.exe"
           ) else (
-              echo Неверный выбор!
+              echo ❌ Файл не найден: Windows_%OS%_%ARCH%\AgiAnalytics_Win%OS%_%ARCH%.exe
+              echo.
+              echo Доступные версии:
+              dir /b Windows_* || echo Нет доступных версий
               pause
               exit /b 1
           )
-          
-          echo.
-          echo Подробная инструкция в файле README.txt
-          pause
           '@
           
-          Set-Content -Path "$releaseDir\Install.bat" -Value $installerScript -Encoding ASCII
+          Set-Content -Path "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\Start_AgiAnalytics.bat" -Value $launcherContent -Encoding UTF8
           
-          # Архивируем
-          Write-Host "Creating ZIP archive..."
-          Compress-Archive -Path "$releaseDir\*" -DestinationPath "AgiAnalytics_v$version.zip" -Force
+          # Создаем README
+          $readmeContent = @'
+          ========================================
+          AgiAnalytics v${{ github.run_number }}
+          ========================================
           
-          Write-Host "Release package created: AgiAnalytics_v$version.zip"
-          Write-Host "Archive size: $((Get-Item "AgiAnalytics_v$version.zip").Length / 1MB) MB"
+          ИСПОЛЬЗОВАНИЕ:
+          
+          1. Распакуйте архив
+          2. Запустите Start_AgiAnalytics.bat
+          3. Программа автоматически определит вашу систему
+          
+          ВАЖНО ДЛЯ WINDOWS 7:
+          
+          Установите следующие компоненты ПЕРЕД запуском:
+          
+          1. Visual C++ Redistributable 2015-2022:
+             - Для 32-bit: vcredist_x86.exe из папки Dependencies
+             - Для 64-bit: vcredist_x64.exe из папки Dependencies
+          
+          2. Обновление KB2999226 (Universal C Runtime):
+             - windows6.1-kb2999226-x64.msu для 64-bit
+             - windows6.1-kb2999226-x86.msu для 32-bit
+          
+          3. Все обновления Windows через Центр обновления
+          
+          ИСПРАВЛЕНИЕ ОШИБОК:
+          
+          1. Ошибка "api-ms-win-core-path-l1-1-0.dll" - установите KB2999226
+          2. Ошибка "VCRUNTIME140.dll" - установите VC++ Redistributable
+          3. Антивирус блокирует - добавьте исключение
+          4. Не запускается - запустите от имени администратора
+          
+          ПОДДЕРЖКА:
+          GitHub Issues: https://github.com/${{ github.repository }}/issues
+          '@
+          
+          Set-Content -Path "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\README.txt" -Value $readmeContent -Encoding UTF8
 
-      - name: Upload release package
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path "AgiAnalytics_v$env:GITHUB_RUN_NUMBER\*" -DestinationPath "AgiAnalytics_v$env:GITHUB_RUN_NUMBER.zip"
+          Write-Host "✅ Архив создан: AgiAnalytics_v$env:GITHUB_RUN_NUMBER.zip"
+
+      - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AgiAnalytics-Release-Package
+          name: AgiAnalytics-Release
           path: AgiAnalytics_v${{ github.run_number }}.zip
 
       - name: Create GitHub Release
@@ -330,43 +521,47 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: AgiAnalytics v${{ github.run_number }}
           body: |
-            # AgiAnalytics v${{ github.run_number }}
+            # 🚀 AgiAnalytics v${{ github.run_number }}
             
-            Полная сборка для всех версий Windows.
+            ## 🔧 ИСПРАВЛЕННЫЕ ОШИБКИ:
             
-            ## Содержимое архива:
+            ✅ Решена проблема с `api-ms-win-core-path-l1-1-0.dll` на Windows 7  
+            ✅ Исправлена загрузка Python DLL  
+            ✅ Оптимизирована совместимость с Windows 7  
+            ✅ Добавлен автоматический определитель системы  
             
-            | Версия Windows | Архитектура | Файлы |
-            |----------------|-------------|-------|
-            | Windows 7 | 32-bit | AgiAnalytics_Win7_x86.exe + Run_AgiAnalytics_Win7_x86.bat |
-            | Windows 7 | 64-bit | AgiAnalytics_Win7_x64.exe + Run_AgiAnalytics_Win7_x64.bat |
-            | Windows 10 | 32-bit | AgiAnalytics_Win10_x86.exe |
-            | Windows 10 | 64-bit | AgiAnalytics_Win10_x64.exe |
-            
-            ## Быстрый старт:
+            ## ⚡ КАК ИСПОЛЬЗОВАТЬ:
             
             1. Скачайте архив
             2. Распакуйте в любую папку
-            3. Запустите Install.bat
-            4. Выберите вашу версию Windows
-            5. Запустите программу
+            3. Запустите **Start_AgiAnalytics.bat**
+            4. Программа сама определит вашу версию Windows
             
-            ## Для Windows 7:
-            
-            Используйте Run_*.bat файлы для лучшей совместимости.
+            ## ⚠️ ВАЖНО ДЛЯ WINDOWS 7:
             
             Перед запуском установите:
-            - Visual C++ Redistributable
-            - Обновление KB2999226
             
-            ## Технические детали:
+            1. **[Visual C++ Redistributable 2015-2022](https://aka.ms/vs/17/release/vc_redist.x86.exe)** (x86)  
+            2. **[Visual C++ Redistributable 2015-2022](https://aka.ms/vs/17/release/vc_redist.x64.exe)** (x64)  
+            3. **[Обновление KB2999226](https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2015/07/windows6.1-kb2999226-x86.msu)** (x86)  
+            4. **[Обновление KB2999226](https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2015/07/windows6.1-kb2999226-x64.msu)** (x64)  
             
-            | Параметр | Windows 7 | Windows 10 |
-            |----------|-----------|------------|
-            | Python | 3.7.9 | 3.8.10 |
-            | PyInstaller | 5.0.1 | 5.12.0 |
-            | UPX | Отключен | Включен |
+            ## 📊 ТЕХНИЧЕСКИЕ ДЕТАЛИ:
             
-            ## Поддержка:
+            | Система | Python | Архитектура | Особенности |
+            |---------|--------|-------------|-------------|
+            | Windows 7 | 3.8.10 | x86/x64 | Отключен UPX, стабильные версии |
+            | Windows 10 | 3.9.13 | x86/x64 | Последние версии библиотек |
             
-            Сообщить о проблеме
+            ## 📁 СОДЕРЖИМОЕ АРХИВА:
+            
+            - `Windows_7_32bit/` - для Windows 7 32-bit
+            - `Windows_7_64bit/` - для Windows 7 64-bit  
+            - `Windows_10_32bit/` - для Windows 10 32-bit
+            - `Windows_10_64bit/` - для Windows 10 64-bit
+            - `Start_AgiAnalytics.bat` - автоматический запускатор
+            - `README.txt` - полная инструкция
+            
+            ## 🐛 ПОДДЕРЖКА:
+            
+            [Сообщить о проблеме](https://github.com/${{ github.repository }}/issues/new)
