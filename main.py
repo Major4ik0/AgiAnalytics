@@ -147,8 +147,6 @@ class ApplicantDialog(QDialog):
         self.course = QComboBox()
         self.course.addItems(['1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
 
-        self.faculty = QLineEdit()
-
         # Добавление полей в форму
         form_layout.addRow('Учебная группа:', self.study_group)
         form_layout.addRow('Звание:', self.rank)
@@ -160,7 +158,7 @@ class ApplicantDialog(QDialog):
         form_layout.addRow('Телефон:', self.phone)
         form_layout.addRow('Статус:', self.status)
         form_layout.addRow('Статус документов:', self.document_status)
-        # form_layout.addRow('Факультет:', self.faculty)
+        form_layout.addRow('Курс:', self.course)
         form_layout.addRow('Примечания:', self.notes)
 
         # Заполнение данных если редактирование
@@ -176,7 +174,6 @@ class ApplicantDialog(QDialog):
             self.status.setCurrentText(self.applicant_data.get('status', '1)поступает'))
             self.document_status.setCurrentText(self.applicant_data.get('document_status', ''))
             self.course.setCurrentText(self.applicant_data.get('course', '1 курс'))
-            # self.faculty.setText(self.applicant_data.get('faculty', ''))
             self.notes.setText(self.applicant_data.get('notes', ''))
 
         layout.addLayout(form_layout)

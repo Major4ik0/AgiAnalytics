@@ -18,10 +18,10 @@ jobs:
             python: '3.8'
             arch: 'x64'
           - win: '10'
-            python: '3.10'
+            python: '3.8'
             arch: 'x86'
           - win: '10'
-            python: '3.10'
+            python: '3.8'
             arch: 'x64'
 
     steps:
