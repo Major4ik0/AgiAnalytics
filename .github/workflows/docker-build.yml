@@ -29,227 +29,70 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy==1.21.6 pandas==1.3.5 PyQt5==5.15.4 pyinstaller==5.13.0 openpyxl==3.0.10 pillow==9.5.0 msoffcrypto-tool==4.12.0 olefile==0.46 xlrd==2.0.1 xlwt==1.3.0
 
-      - name: Create spec file for better resource handling
-        run: |
-          # Создаем spec файл для лучшего контроля над ресурсами
-          $spec_content = @'
-          # -*- mode: python ; coding: utf-8 -*-
-          import sys
-          import os
-          from PyInstaller.utils.hooks import collect_data_files, collect_submodules
-          
-          # Решение для иконок и ресурсов
-          def get_resource_path(relative_path):
-              """Получить абсолютный путь к ресурсу."""
-              try:
-                  # PyInstaller создает временную папку в _MEIPASS
-                  base_path = sys._MEIPASS
-              except Exception:
-                  # При разработке используем текущую директорию
-                  base_path = os.path.abspath(".")
-              
-              return os.path.join(base_path, relative_path)
-          
-          a = Analysis(
-              ['main.py'],
-              pathex=[],
-              binaries=[],
-              datas=[
-                  ('icons', 'icons'),  # Копируем всю папку icons
-                  ('icons/icon.ico', '.'),  # Иконку в корень
-              ],
-              hiddenimports=[
-                  'PyQt5',
-                  'PyQt5.QtCore',
-                  'PyQt5.QtGui',
-                  'PyQt5.QtWidgets',
-                  'pandas',
-                  'numpy',
-                  'numpy.core._multiarray_umath',
-                  'openpyxl',
-                  'openpyxl.cell._writer',
-                  'openpyxl.utils',
-                  'sqlite3',
-                  'PIL',
-                  'PIL._imaging',
-                  'PIL.Image',
-                  'xlrd',
-                  'xlrd.compdoc',
-                  'xlrd.xlsx',
-                  'xlwt',
-                  'xlwt.ExcelFormula',
-                  'xlwt.ExcelFormulaParser',
-                  'msoffcrypto',
-                  'olefile',
-                  'encodings.utf_8',
-                  'encodings.cp1251',
-                  'sip',
-              ],
-              hookspath=[],
-              hooksconfig={},
-              runtime_hooks=[],
-              excludes=[],
-              win_no_prefer_redirects=False,
-              win_private_assemblies=False,
-              cipher=None,
-              noarchive=False,
-          )
-          
-          # Создаем один исполняемый файл
-          pyz = PYZ(a.pure)
-          
-          exe = EXE(
-              pyz,
-              a.scripts,
-              a.binaries,
-              a.datas,
-              [],
-              name='AgiAnalytics_x64',
-              debug=False,
-              bootloader_ignore_signals=False,
-              strip=False,
-              upx=False,  # Отключаем UPX для лучшей совместимости
-              upx_exclude=[],
-              runtime_tmpdir=None,
-              console=False,  # Не показывать консоль
-              disable_windowed_traceback=False,
-              argv_emulation=False,
-              target_arch=None,
-              codesign_identity=None,
-              entitlements_file=None,
-              icon=['icons/icon.ico'],  # Путь к иконке
-          )
-          '@
-          
-          Set-Content -Path "main.spec" -Value $spec_content -Encoding UTF8
-          Write-Host "✅ Spec файл создан"
-
-      - name: Build x64 executable using spec file
+      - name: Build x64 executable with direct command
         run: |
           $exe_name = "AgiAnalytics_x64"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           
-          # Строим с помощью spec файла
-          pyinstaller --clean --noconfirm main.spec
+          # Используем прямую команду вместо spec файла
+          pyinstaller --onefile --windowed --icon=icons/icon.ico --name="$exe_name" --noupx --clean `
+            --hidden-import=PyQt5 `
+            --hidden-import=PyQt5.QtCore `
+            --hidden-import=PyQt5.QtGui `
+            --hidden-import=PyQt5.QtWidgets `
+            --hidden-import=pandas `
+            --hidden-import=numpy `
+            --hidden-import=numpy.core._multiarray_umath `
+            --hidden-import=openpyxl `
+            --hidden-import=openpyxl.cell._writer `
+            --hidden-import=openpyxl.utils `
+            --hidden-import=sqlite3 `
+            --hidden-import=PIL `
+            --hidden-import=PIL._imaging `
+            --hidden-import=PIL.Image `
+            --hidden-import=xlrd `
+            --hidden-import=xlrd.compdoc `
+            --hidden-import=xlrd.xlsx `
+            --hidden-import=xlwt `
+            --hidden-import=xlwt.ExcelFormula `
+            --hidden-import=xlwt.ExcelFormulaParser `
+            --hidden-import=msoffcrypto `
+            --hidden-import=olefile `
+            --hidden-import=encodings.utf_8 `
+            --hidden-import=encodings.cp1251 `
+            --add-data="icons;icons" `
+            main.py
           
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка x64 успешна"
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
             Write-Host "📦 Размер файла: $($size.ToString('0.00')) MB"
             
-            # Проверяем, что ресурсы добавлены
-            Write-Host "🔍 Проверка включенных ресурсов:"
+            # Проверяем содержимое
+            Write-Host "📁 Содержимое dist:"
             Get-ChildItem -Path "dist" -Recurse | ForEach-Object {
-              Write-Host "   $($_.FullName)"
+              Write-Host "  $($_.Name)"
             }
           } else {
             Write-Error "❌ Ошибка сборки x64"
-            # Показываем логи ошибок
+            # Проверяем логи
             if (Test-Path "build") {
-              Get-ChildItem -Path "build" -Recurse -Filter "*.log" | ForEach-Object {
-                Write-Host "📄 Лог файл: $($_.FullName)"
-                Get-Content $_.FullName -Tail 100
+              $logFiles = Get-ChildItem -Path "build" -Recurse -Filter "*.log" -ErrorAction SilentlyContinue
+              if ($logFiles) {
+                foreach ($log in $logFiles) {
+                  Write-Host "📄 Лог: $($log.FullName)"
+                  Get-Content $log.FullName -Tail 50
+                }
               }
             }
             exit 1
-          }
-
-      - name: Create test script to verify resources
-        run: |
-          # Создаем тестовый скрипт для проверки работы с ресурсами
-          $test_script = @'
-          import sys
-          import os
-          import traceback
-          
-          def get_resource_path(relative_path):
-              """Получить абсолютный путь к ресурсу."""
-              try:
-                  # PyInstaller создает временную папку в _MEIPASS
-                  base_path = sys._MEIPASS
-                  print(f"Режим PyInstaller, базовая папка: {base_path}")
-              except Exception:
-                  # При разработке используем текущую директорию
-                  base_path = os.path.abspath(".")
-                  print(f"Режим разработки, базовая папка: {base_path}")
-              
-              resource_path = os.path.join(base_path, relative_path)
-              print(f"Ищем ресурс: {relative_path}")
-              print(f"Полный путь: {resource_path}")
-              
-              # Проверяем существование
-              if os.path.exists(resource_path):
-                  print(f"✅ Ресурс найден: {resource_path}")
-                  return resource_path
-              else:
-                  print(f"❌ Ресурс НЕ найден: {resource_path}")
-                  # Пытаемся найти в альтернативных местах
-                  possible_paths = [
-                      resource_path,
-                      os.path.join(os.path.dirname(sys.executable), relative_path),
-                      os.path.join(os.path.dirname(__file__), relative_path),
-                  ]
-                  
-                  for path in possible_paths:
-                      if os.path.exists(path):
-                          print(f"✅ Найден альтернативно: {path}")
-                          return path
-                  
-                  return None
-          
-          # Тестируем поиск ресурсов
-          print("=" * 50)
-          print("Тестирование доступа к ресурсам")
-          print("=" * 50)
-          
-          # Тестируем иконку
-          icon_path = get_resource_path("icon.ico")
-          if icon_path:
-              print(f"Иконка: {icon_path}")
-          else:
-              print("Иконка не найдена!")
-          
-          # Тестируем папку icons
-          icons_dir = get_resource_path("icons")
-          if icons_dir and os.path.isdir(icons_dir):
-              print(f"Папка icons: {icons_dir}")
-              print("Содержимое папки icons:")
-              for item in os.listdir(icons_dir):
-                  print(f"  - {item}")
-          else:
-              print("Папка icons не найдена!")
-          
-          print("=" * 50)
-          '@
-          
-          Set-Content -Path "test_resources.py" -Value $test_script -Encoding UTF8
-          Write-Host "✅ Тестовый скрипт создан"
-
-      - name: Test the executable
-        run: |
-          # Тестируем exe файл
-          if (Test-Path "dist/AgiAnalytics_x64.exe") {
-            Write-Host "🧪 Тестируем исполняемый файл..."
-            
-            # Проверяем, что файл вообще запускается
-            $test_result = Start-Process -FilePath "dist/AgiAnalytics_x64.exe" -ArgumentList "--test" -NoNewWindow -Wait -PassThru
-            Write-Host "Код завершения: $($test_result.ExitCode)"
-            
-            # Проверяем структуру dist
-            Write-Host "📁 Содержимое папки dist:"
-            Get-ChildItem -Path "dist" -Recurse | ForEach-Object {
-              $size_kb = [math]::Round($_.Length / 1KB, 2)
-              Write-Host "  $($_.FullName) ($size_kb KB)"
-            }
           }
 
       - name: Upload x64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: AgiAnalytics-x64
-          path: |
-            dist/AgiAnalytics_x64.exe
-            test_resources.py
+          path: dist/AgiAnalytics_x64.exe
 
   build-win7-x86:
     name: Build Legacy x86 (Win7/10/11)
@@ -270,93 +113,15 @@ jobs:
           python -m pip install --upgrade pip==20.3.4
           pip install wheel==0.34.2 setuptools==44.0.0 numpy==1.19.3 pandas==1.3.5 PyQt5==5.15.4 pyinstaller==5.0.1 openpyxl==3.0.9 xlrd==2.0.1 xlwt==1.3.0 pillow==8.4.0 msoffcrypto-tool==4.12.0 olefile==0.46
 
-      - name: Create spec file for x86
-        run: |
-          # Создаем spec файл для x86
-          $spec_content = @'
-          # -*- mode: python ; coding: utf-8 -*-
-          import sys
-          import os
-          
-          a = Analysis(
-              ['main.py'],
-              pathex=[],
-              binaries=[],
-              datas=[
-                  ('icons', 'icons'),
-                  ('icons/icon.ico', '.'),
-              ],
-              hiddenimports=[
-                  'PyQt5',
-                  'PyQt5.QtCore',
-                  'PyQt5.QtGui',
-                  'PyQt5.QtWidgets',
-                  'pandas',
-                  'numpy',
-                  'numpy.core._multiarray_umath',
-                  'openpyxl',
-                  'openpyxl.cell._writer',
-                  'openpyxl.utils',
-                  'sqlite3',
-                  'PIL',
-                  'PIL._imaging',
-                  'PIL.Image',
-                  'xlrd',
-                  'xlrd.compdoc',
-                  'xlrd.xlsx',
-                  'xlwt',
-                  'xlwt.ExcelFormula',
-                  'xlwt.ExcelFormulaParser',
-                  'msoffcrypto',
-                  'olefile',
-                  'encodings.utf_8',
-                  'encodings.cp1251',
-                  'sip',
-              ],
-              hookspath=[],
-              hooksconfig={},
-              runtime_hooks=[],
-              excludes=[],
-              win_no_prefer_redirects=False,
-              win_private_assemblies=False,
-              cipher=None,
-              noarchive=False,
-          )
-          
-          pyz = PYZ(a.pure)
-          
-          exe = EXE(
-              pyz,
-              a.scripts,
-              a.binaries,
-              a.datas,
-              [],
-              name='AgiAnalytics_x86',
-              debug=False,
-              bootloader_ignore_signals=False,
-              strip=False,
-              upx=False,
-              upx_exclude=[],
-              runtime_tmpdir=None,
-              console=False,
-              disable_windowed_traceback=False,
-              argv_emulation=False,
-              target_arch=None,
-              codesign_identity=None,
-              entitlements_file=None,
-              icon=['icons/icon.ico'],
-          )
-          '@
-          
-          Set-Content -Path "main_x86.spec" -Value $spec_content -Encoding UTF8
-          Write-Host "✅ Spec файл для x86 создан"
-
-      - name: Build x86 executable
+      - name: Build x86 executable with simplified command
         run: |
           $exe_name = "AgiAnalytics_x86"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           
-          pyinstaller --clean --noconfirm main_x86.spec
+          # Упрощенная команда без лишних hidden-imports
+          pyinstaller --onefile --windowed --icon=icons/icon.ico --name="$exe_name" --noupx --clean `
+            --add-data="icons;icons" `
+            main.py
           
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка x86 успешна"
@@ -364,6 +129,13 @@ jobs:
             Write-Host "📦 Размер файла: $($size.ToString('0.00')) MB"
           } else {
             Write-Error "❌ Ошибка сборки x86"
+            # Простая проверка ошибок
+            if (Test-Path "build") {
+              Write-Host "📁 Содержимое build:"
+              Get-ChildItem -Path "build" -Recurse -Filter "*.txt" | Select-Object -First 3 | ForEach-Object {
+                Write-Host "  $($_.Name)"
+              }
+            }
             exit 1
           }
 
@@ -395,188 +167,91 @@ jobs:
           release_name="AgiAnalytics_v$version"
           
           # Создаем структуру каталогов
-          mkdir -p "$release_name"
           mkdir -p "$release_name/x64"
           mkdir -p "$release_name/x86"
-          mkdir -p "$release_name/icons"  # Добавляем папку для иконок
+          mkdir -p "$release_name/icons"
           
           # Копируем исполняемые файлы
           if [ -f "artifacts/AgiAnalytics_x64.exe" ]; then
             cp "artifacts/AgiAnalytics_x64.exe" "$release_name/x64/"
             echo "✅ x64 версия скопирована"
-          elif [ -f "artifacts/AgiAnalytics-x64/AgiAnalytics_x64.exe" ]; then
-            cp "artifacts/AgiAnalytics-x64/AgiAnalytics_x64.exe" "$release_name/x64/"
-            echo "✅ x64 версия скопирована (из подпапки)"
           fi
           
           if [ -f "artifacts/AgiAnalytics_x86.exe" ]; then
             cp "artifacts/AgiAnalytics_x86.exe" "$release_name/x86/"
             echo "✅ x86 версия скопирована"
-          elif [ -f "artifacts/AgiAnalytics-x86/AgiAnalytics_x86.exe" ]; then
-            cp "artifacts/AgiAnalytics-x86/AgiAnalytics_x86.exe" "$release_name/x86/"
-            echo "✅ x86 версия скопирована (из подпапки)"
           fi
           
-          # Копируем иконки из репозитория
+          # Копируем иконки из репозитория (если они есть)
           if [ -d "icons" ]; then
-            cp -r icons/* "$release_name/icons/"
-            echo "✅ Иконки скопированы"
+            cp -r icons/* "$release_name/icons/" 2>/dev/null || true
+            echo "📁 Иконки скопированы"
+          else
+            echo "⚠️  Папка icons не найдена в репозитории"
           fi
           
-          # Создаем автоматический лаунчер с улучшенной обработкой путей
+          # Создаем автоматический лаунчер
           cat > "$release_name/Start_AgiAnalytics.bat" << 'EOF'
           @echo off
           chcp 65001 >nul
-          setlocal enabledelayedexpansion
-          
           echo ========================================
           echo   AgiAnalytics - Автоматический запуск
           echo ========================================
           echo.
           
-          REM Определяем архитектуру системы
+          REM Определяем архитектуру
           if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
-              set ARCH=x64
-              set EXE_NAME=AgiAnalytics_x64.exe
+              set "EXE_PATH=x64\AgiAnalytics_x64.exe"
+              echo Обнаружена 64-битная система
           ) else (
-              set ARCH=x86
-              set EXE_NAME=AgiAnalytics_x86.exe
+              set "EXE_PATH=x86\AgiAnalytics_x86.exe"
+              echo Обнаружена 32-битная система
           )
           
-          REM Определяем версию Windows
-          ver | find "10." > nul
-          if %errorlevel% equ 0 set WIN_VER=10
-          
-          ver | find "6.1" > nul
-          if %errorlevel% equ 0 set WIN_VER=7
-          
-          echo Обнаружено: Windows %WIN_VER% (%ARCH%)
           echo.
           
           REM Проверяем существование файла
-          if exist "%ARCH%\!EXE_NAME!" (
-              echo Запуск: !EXE_NAME!
+          if exist "%EXE_PATH%" (
+              echo Запуск программы...
               echo.
-              
-              REM Для Windows 7 показываем предупреждение
-              if "%WIN_VER%"=="7" (
-                  echo ⚠️  ВАЖНО ДЛЯ WINDOWS 7:
-                  echo 1. Убедитесь, что установлены все обновления Windows
-                  echo 2. Установите обновление KB2999226
-                  echo 3. Установите Visual C++ Redistributable
-                  echo.
-                  echo Нажмите любую клавишу для продолжения...
-                  pause > nul
-              )
-              
-              REM Запускаем программу
-              start "" "%ARCH%\!EXE_NAME!"
+              start "" "%EXE_PATH%"
           ) else (
-              echo ❌ Ошибка: Файл !EXE_NAME! не найден в папке %ARCH%
+              echo ❌ Ошибка: Файл не найден
+              echo Путь: %EXE_PATH%
               echo.
-              echo Доступные файлы в папке %ARCH%:
-              if exist "%ARCH%" (
-                  dir /b "%ARCH%\"
-              )
+              echo Проверьте, что:
+              echo 1. Вы распаковали весь архив
+              echo 2. Файлы находятся в правильных папках
               echo.
               pause
           )
           
-          endlocal
           EOF
                     
-                    # Создаем скрипт для установки зависимостей Windows 7
-                    cat > "$release_name/Install_Win7_Requirements.bat" << 'EOF'
-          @echo off
-          chcp 65001 >nul
-          echo ========================================
-          echo   Установка требований для Windows 7
-          echo ========================================
-          echo.
-          echo Этот скрипт поможет установить необходимые компоненты
-          echo для работы AgiAnalytics на Windows 7.
-          echo.
-          echo 1. Обновление KB2999226 (Universal C Runtime)
-          echo 2. Visual C++ Redistributable
-          echo.
-          echo Нажмите любую клавишу для начала установки...
-          pause > nul
-          echo.
-          
-          echo 📥 Загружаем обновление KB2999226...
-          powershell -Command "Start-BitsTransfer -Source 'https://download.microsoft.com/download/D/1/3/D13F2F5C-0241-42D5-A4D7-4F8E8C21B5F9/Windows6.1-KB2999226-x64.msu' -Destination 'KB2999226.msu'"
-          if exist "KB2999226.msu" (
-              echo Устанавливаем KB2999226...
-              wusa.exe KB2999226.msu /quiet /norestart
-              echo ✅ KB2999226 установлен
-          ) else (
-              echo ❌ Не удалось загрузить KB2999226
-              echo Скачайте вручную с сайта Microsoft
-          )
-          
-          echo.
-          echo 📥 Загружаем Visual C++ Redistributable...
-          powershell -Command "Start-BitsTransfer -Source 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -Destination 'vc_redist.x64.exe'"
-          if exist "vc_redist.x64.exe" (
-              echo Устанавливаем VC++ Redistributable...
-              vc_redist.x64.exe /install /quiet /norestart
-              echo ✅ VC++ Redistributable установлен
-          ) else (
-              echo ❌ Не удалось загрузить VC++ Redistributable
-          )
-          
-          echo.
-          echo ========================================
-          echo Установка завершена!
-          echo Перезагрузите компьютер и запустите Start_AgiAnalytics.bat
-          echo ========================================
-          pause
-          EOF
-                    
-                    # Создаем README с инструкциями
+                    # Создаем простой README
                     cat > "$release_name/README.txt" << EOF
           ========================================
           AgiAnalytics v$version
           ========================================
           
-          📁 СТРУКТУРА АРХИВА:
-          /x64/AgiAnalytics_x64.exe     - 64-битная версия
-          /x86/AgiAnalytics_x86.exe     - 32-битная версия
-          /icons/                       - Файлы иконок
-          Start_AgiAnalytics.bat        - Автозапуск
-          Install_Win7_Requirements.bat - Установщик для Win7
+          СОДЕРЖИМОЕ:
+          • x64/AgiAnalytics_x64.exe - 64-битная версия
+          • x86/AgiAnalytics_x86.exe - 32-битная версия
+          • Start_AgiAnalytics.bat   - Автозапуск
           
-          🚀 БЫСТРЫЙ СТАРТ:
-          1. Распакуйте архив
+          ИНСТРУКЦИЯ:
+          1. Распакуйте архив в любую папку
           2. Запустите Start_AgiAnalytics.bat
           3. Программа сама выберет нужную версию
           
-          🔧 РУЧНОЙ ЗАПУСК:
-          • 64-битные системы: запустите x64/AgiAnalytics_x64.exe
-          • 32-битные системы: запустите x86/AgiAnalytics_x86.exe
-          
-          ⚠️  ДЛЯ WINDOWS 7:
-          Если программа не запускается на Windows 7:
-          1. Запустите Install_Win7_Requirements.bat
-          2. Установите все обновления Windows через Центр обновления
+          ДЛЯ WINDOWS 7:
+          Если программа не запускается:
+          1. Установите обновление KB2999226
+          2. Установите Visual C++ Redistributable
           3. Перезагрузите компьютер
           
-          🛠️  РЕШЕНИЕ ПРОБЛЕМ:
-          
-          1. Ошибка "api-ms-win-core-*.dll"
-             Решение: Установите KB2999226
-          
-          2. Ошибка "VCRUNTIME140.dll"
-             Решение: Установите Visual C++ Redistributable
-          
-          3. Программа запускается и сразу закрывается
-             Решение: Запустите из командной строки для просмотра ошибок
-          
-          4. Не загружаются иконки
-             Решение: Убедитесь, что папка "icons" находится рядом с exe-файлом
-          
-          📞 ПОДДЕРЖКА:
-          GitHub: https://github.com/${{ github.repository }}/issues
+          ПОДДЕРЖКА:
+          https://github.com/${{ github.repository }}/issues
           EOF
 
       - name: Create ZIP archive
@@ -585,13 +260,6 @@ jobs:
           release_name="AgiAnalytics_v$version"
           zip -r "${release_name}.zip" "$release_name"
           echo "✅ Архив создан: ${release_name}.zip"
-          
-          # Показываем информацию о размере
-          echo "📊 Информация о релизе:"
-          du -sh "$release_name"
-          du -sh "${release_name}.zip"
-          echo "Файлы в релизе:"
-          find "$release_name" -type f | sort
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
@@ -607,72 +275,38 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: AgiAnalytics v${{ github.run_number }}
           body: |
-            ## 🚀 Универсальная сборка для Windows 7-11
+            ## 🚀 Универсальная сборка для Windows
             
-            ### 📦 Содержимое релиза:
-            - **x64/AgiAnalytics_x64.exe** - 64-битная версия
-            - **x86/AgiAnalytics_x86.exe** - 32-битная версия  
-            - **Start_AgiAnalytics.bat** - Автоматический запускатор
-            - **Install_Win7_Requirements.bat** - Установщик для Windows 7
-            - **README.txt** - Подробная инструкция
+            ### 📦 Содержимое:
+            - **x64/AgiAnalytics_x64.exe** - для 64-битных систем
+            - **x86/AgiAnalytics_x86.exe** - для 32-битных систем
+            - **Start_AgiAnalytics.bat** - автоматический выбор версии
             
             ### ⚡ Быстрый старт:
-            1. Скачайте и распакуйте архив
-            2. Запустите `Start_AgiAnalytics.bat`
-            3. Программа сама определит вашу систему
+            1. Скачайте архив
+            2. Распакуйте в любую папку
+            3. Запустите `Start_AgiAnalytics.bat`
             
-            ### 🛠️ Для Windows 7 (ОБЯЗАТЕЛЬНО):
-            Если программа не запускается:
-            ```bash
-            # 1. Установите обновления
-            Запустите Install_Win7_Requirements.bat
+            ### 🔧 Системные требования:
+            - Windows 7 SP1 или новее
+            - 2 ГБ ОЗУ (рекомендуется 4 ГБ)
+            - 100 МБ свободного места
             
-            # 2. Проверьте обновления Windows
-            Панель управления -> Центр обновления
+            ### 🛠️ Для Windows 7:
+            Если программа не запускается, установите:
+            1. [Обновление KB2999226](https://support.microsoft.com/en-us/topic/update-for-universal-c-runtime-in-windows-c0514201-7fe6-95a3-b0a5-287930f3560c)
+            2. [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
             
-            # 3. Перезагрузите компьютер
-            ```
+            ### 📝 Информация о сборке:
+            - Версия Python: 3.8.10
+            - PyInstaller: 5.13.0 (x64) / 5.0.1 (x86)
+            - Сборка №: ${{ github.run_number }}
             
-            ### 🔍 Проверка архитектуры:
-            ```bash
-            # В командной строке:
-            echo %PROCESSOR_ARCHITECTURE%
-            
-            # Если показывает AMD64 - используйте x64 версию
-            # Если показывает x86 - используйте x86 версию
-            ```
-            
-            ### 📊 Системные требования:
-            | Компонент | Минимум | Рекомендуется |
-            |-----------|---------|---------------|
-            | ОЗУ | 2 ГБ | 8 ГБ |
-            | Процессор | 2 ядра | 4+ ядер |
-            | Место на диске | 100 МБ | 1 ГБ |
-            | ОС | Windows 7 SP1 | Windows 10+ |
-            
-            ### 🐛 Известные проблемы и решения:
-            
-            **Проблема 1:** Ошибки с api-ms-win-core-*.dll
-            **Решение:** Установите [KB2999226](https://support.microsoft.com/en-us/topic/update-for-universal-c-runtime-in-windows-c0514201-7fe6-95a3-b0a5-287930f3560c)
-            
-            **Проблема 2:** Ошибка VCRUNTIME140.dll
-            **Решение:** Установите [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-            
-            **Проблема 3:** Программа не видит иконки
-            **Решение:** Запускайте через Start_AgiAnalytics.bat или скопируйте папку icons рядом с exe-файлом
-            
-            ### 📝 Технические детали:
-            - **Версия Python:** 3.8.10
-            - **Формат:** Portable (не требует установки)
-            - **Архитектура:** x86 и x64
-            - **Тип:** Оконное приложение (GUI)
-            
-            ### 🔗 Полезные ссылки:
+            ### 🔗 Ссылки:
             - [Исходный код](https://github.com/${{ github.repository }})
-            - [Багрепорты](https://github.com/${{ github.repository }}/issues)
-            - [Чейнджлог](https://github.com/${{ github.repository }}/releases)
+            - [Сообщить об ошибке](https://github.com/${{ github.repository }}/issues)
             
             ---
-            *Сборка №${{ github.run_number }} от $(date -u +'%Y-%m-%d %H:%M UTC')*
+            *Собрано: $(date -u +'%Y-%m-%d %H:%M UTC')*
           draft: false
           prerelease: false
