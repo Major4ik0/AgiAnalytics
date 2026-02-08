@@ -1,0 +1,55 @@
+name: Build Windows 10 (x64)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.8.10 (x64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8.10'
+          architecture: x64
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.24.3
+          pip install pandas==1.5.3
+          pip install PyQt5==5.15.9
+          pip install pyinstaller==5.12.0
+          pip install openpyxl==3.1.2
+          pip install pillow==9.5.0
+          pip install pywin32==306
+
+      - name: Build executable
+        run: |
+          $exe_name = "AgiAnalytics_Win10_x64"
+          
+          if (Test-Path "dist") { Remove-Item -Recurse -Force dist }
+          if (Test-Path "build") { Remove-Item -Recurse -Force build }
+          
+          Write-Host "Building $exe_name..."
+          
+          pyinstaller --onefile --windowed --name="$exe_name" --clean --hidden-import=PyQt5 --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets --hidden-import=PyQt5.sip --hidden-import=pandas --hidden-import=numpy --hidden-import=numpy.core._multiarray_umath --hidden-import=openpyxl --hidden-import=sqlite3 main.py
+          
+          if (Test-Path "dist/$exe_name.exe") {
+            Write-Host "Build successful! File: dist/$exe_name.exe"
+          } else {
+            Write-Error "Build failed!"
+            exit 1
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgiAnalytics-Win10-x64
+          path: dist/AgiAnalytics_Win10_x64.exe
