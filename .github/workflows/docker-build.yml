@@ -29,12 +29,79 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy==1.21.6 pandas==1.3.5 PyQt5==5.15.4 pyinstaller==5.13.0 openpyxl==3.0.10 pillow==9.5.0 msoffcrypto-tool==4.12.0 olefile==0.46 xlrd==2.0.1 xlwt==1.3.0
 
-      - name: Build x64 executable with direct command
+      - name: Create resource access module
+        run: |
+          # Создаем модуль для доступа к ресурсам
+          $resource_module = @'
+          import sys
+          import os
+          
+          def resource_path(relative_path):
+              """Получить абсолютный путь к ресурсу, работает для dev и для PyInstaller"""
+              try:
+                  # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+                  base_path = sys._MEIPASS
+              except Exception:
+                  base_path = os.path.abspath(".")
+          
+              path = os.path.join(base_path, relative_path)
+              
+              # Пробуем найти файл
+              if not os.path.exists(path):
+                  # Проверяем альтернативные пути
+                  alternative_paths = [
+                      path,
+                      os.path.join(os.path.dirname(sys.executable), relative_path),
+                      os.path.join(os.path.dirname(__file__), relative_path),
+                      os.path.join(os.path.dirname(__file__), "..", relative_path),
+                  ]
+                  
+                  for alt_path in alternative_paths:
+                      if os.path.exists(alt_path):
+                          return alt_path
+              
+              return path
+          
+          def get_icon_path(icon_name="icon.ico"):
+              """Получить путь к иконке"""
+              icon_paths = [
+                  icon_name,  # Просто имя файла
+                  f"icons/{icon_name}",  # В папке icons
+                  f"../icons/{icon_name}",  # На уровень выше
+                  f"../../icons/{icon_name}",  # На два уровня выше
+              ]
+              
+              for icon_path in icon_paths:
+                  full_path = resource_path(icon_path)
+                  if os.path.exists(full_path):
+                      return full_path
+              
+              # Если иконка не найдена, возвращаем None
+              return None
+          
+          def get_all_icons():
+              """Получить все доступные иконки"""
+              icons_dir = resource_path("icons")
+              icons = {}
+              
+              if os.path.exists(icons_dir) and os.path.isdir(icons_dir):
+                  for filename in os.listdir(icons_dir):
+                      if filename.endswith(('.ico', '.png', '.jpg', '.jpeg')):
+                          icon_name = os.path.splitext(filename)[0]
+                          icons[icon_name] = os.path.join(icons_dir, filename)
+              
+              return icons
+          '@
+          
+          Set-Content -Path "resource_helper.py" -Value $resource_module -Encoding UTF8
+          Write-Host "✅ Модуль для работы с ресурсами создан"
+
+      - name: Build x64 executable
         run: |
           $exe_name = "AgiAnalytics_x64"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           
-          # Используем прямую команду вместо spec файла
+          # Собираем с ресурсами
           pyinstaller --onefile --windowed --icon=icons/icon.ico --name="$exe_name" --noupx --clean `
             --hidden-import=PyQt5 `
             --hidden-import=PyQt5.QtCore `
@@ -61,6 +128,7 @@ jobs:
             --hidden-import=encodings.utf_8 `
             --hidden-import=encodings.cp1251 `
             --add-data="icons;icons" `
+            --add-data="resource_helper.py;." `
             main.py
           
           if (Test-Path "dist/$exe_name.exe") {
@@ -68,23 +136,15 @@ jobs:
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
             Write-Host "📦 Размер файла: $($size.ToString('0.00')) MB"
             
-            # Проверяем содержимое
-            Write-Host "📁 Содержимое dist:"
-            Get-ChildItem -Path "dist" -Recurse | ForEach-Object {
-              Write-Host "  $($_.Name)"
+            # Проверяем, что ресурсы включены
+            Write-Host "🔍 Проверка:"
+            if (Test-Path "dist/icons") {
+              Write-Host "✅ Папка icons включена в сборку"
+            } else {
+              Write-Host "⚠️  Папка icons не найдена в dist"
             }
           } else {
             Write-Error "❌ Ошибка сборки x64"
-            # Проверяем логи
-            if (Test-Path "build") {
-              $logFiles = Get-ChildItem -Path "build" -Recurse -Filter "*.log" -ErrorAction SilentlyContinue
-              if ($logFiles) {
-                foreach ($log in $logFiles) {
-                  Write-Host "📄 Лог: $($log.FullName)"
-                  Get-Content $log.FullName -Tail 50
-                }
-              }
-            }
             exit 1
           }
 
@@ -113,14 +173,14 @@ jobs:
           python -m pip install --upgrade pip==20.3.4
           pip install wheel==0.34.2 setuptools==44.0.0 numpy==1.19.3 pandas==1.3.5 PyQt5==5.15.4 pyinstaller==5.0.1 openpyxl==3.0.9 xlrd==2.0.1 xlwt==1.3.0 pillow==8.4.0 msoffcrypto-tool==4.12.0 olefile==0.46
 
-      - name: Build x86 executable with simplified command
+      - name: Build x86 executable
         run: |
           $exe_name = "AgiAnalytics_x86"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           
-          # Упрощенная команда без лишних hidden-imports
           pyinstaller --onefile --windowed --icon=icons/icon.ico --name="$exe_name" --noupx --clean `
             --add-data="icons;icons" `
+            --add-data="resource_helper.py;." `
             main.py
           
           if (Test-Path "dist/$exe_name.exe") {
@@ -129,13 +189,6 @@ jobs:
             Write-Host "📦 Размер файла: $($size.ToString('0.00')) MB"
           } else {
             Write-Error "❌ Ошибка сборки x86"
-            # Простая проверка ошибок
-            if (Test-Path "build") {
-              Write-Host "📁 Содержимое build:"
-              Get-ChildItem -Path "build" -Recurse -Filter "*.txt" | Select-Object -First 3 | ForEach-Object {
-                Write-Host "  $($_.Name)"
-              }
-            }
             exit 1
           }
 
@@ -161,6 +214,10 @@ jobs:
           pattern: AgiAnalytics-*
           merge-multiple: true
 
+      - name: Get current date
+        id: date
+        run: echo "date=$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+
       - name: Create release structure
         run: |
           version=${{ github.run_number }}
@@ -169,7 +226,6 @@ jobs:
           # Создаем структуру каталогов
           mkdir -p "$release_name/x64"
           mkdir -p "$release_name/x86"
-          mkdir -p "$release_name/icons"
           
           # Копируем исполняемые файлы
           if [ -f "artifacts/AgiAnalytics_x64.exe" ]; then
@@ -180,14 +236,6 @@ jobs:
           if [ -f "artifacts/AgiAnalytics_x86.exe" ]; then
             cp "artifacts/AgiAnalytics_x86.exe" "$release_name/x86/"
             echo "✅ x86 версия скопирована"
-          fi
-          
-          # Копируем иконки из репозитория (если они есть)
-          if [ -d "icons" ]; then
-            cp -r icons/* "$release_name/icons/" 2>/dev/null || true
-            echo "📁 Иконки скопированы"
-          else
-            echo "⚠️  Папка icons не найдена в репозитории"
           fi
           
           # Создаем автоматический лаунчер
@@ -225,7 +273,6 @@ jobs:
               echo.
               pause
           )
-          
           EOF
                     
                     # Создаем простой README
@@ -235,14 +282,19 @@ jobs:
           ========================================
           
           СОДЕРЖИМОЕ:
-          • x64/AgiAnalytics_x64.exe - 64-битная версия
-          • x86/AgiAnalytics_x86.exe - 32-битная версия
+          • x64/AgiAnalytics_x64.exe - 64-битная версия (все ресурсы внутри)
+          • x86/AgiAnalytics_x86.exe - 32-битная версия (все ресурсы внутри)
           • Start_AgiAnalytics.bat   - Автозапуск
           
           ИНСТРУКЦИЯ:
           1. Распакуйте архив в любую папку
           2. Запустите Start_AgiAnalytics.bat
           3. Программа сама выберет нужную версию
+          
+          ОСОБЕННОСТИ:
+          • Все иконки упакованы внутрь EXE файла
+          • Не требует дополнительных файлов
+          • Автономная работа
           
           ДЛЯ WINDOWS 7:
           Если программа не запускается:
@@ -252,6 +304,8 @@ jobs:
           
           ПОДДЕРЖКА:
           https://github.com/${{ github.repository }}/issues
+          
+          Дата сборки: ${{ steps.date.outputs.date }}
           EOF
 
       - name: Create ZIP archive
@@ -282,7 +336,13 @@ jobs:
             - **x86/AgiAnalytics_x86.exe** - для 32-битных систем
             - **Start_AgiAnalytics.bat** - автоматический выбор версии
             
-            ### ⚡ Быстрый старт:
+            ### ⚡ Особенности:
+            - ✅ Все ресурсы упакованы внутрь EXE
+            - ✅ Не требует дополнительных файлов
+            - ✅ Автономная работа
+            - ✅ Иконки включены в исполняемый файл
+            
+            ### 🚀 Быстрый старт:
             1. Скачайте архив
             2. Распакуйте в любую папку
             3. Запустите `Start_AgiAnalytics.bat`
@@ -301,12 +361,13 @@ jobs:
             - Версия Python: 3.8.10
             - PyInstaller: 5.13.0 (x64) / 5.0.1 (x86)
             - Сборка №: ${{ github.run_number }}
+            - Дата сборки: ${{ steps.date.outputs.date }}
             
             ### 🔗 Ссылки:
             - [Исходный код](https://github.com/${{ github.repository }})
             - [Сообщить об ошибке](https://github.com/${{ github.repository }}/issues)
             
             ---
-            *Собрано: $(date -u +'%Y-%m-%d %H:%M UTC')*
+            *Собрано: ${{ steps.date.outputs.date }}*
           draft: false
           prerelease: false
