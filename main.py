@@ -285,7 +285,41 @@ class UserDialog(QDialog):
             self.setWindowTitle('Добавить пользователя')
 
         self.setFixedSize(500, 400)
+        self.set_application_icon()
         self.init_ui()
+
+    def set_application_icon(self):
+        """Установка иконки приложения в зависимости от платформы"""
+        try:
+            if sys.platform == "darwin":  # macOS
+                # Для macOS можно попробовать .png или .icns
+                icon_path = self.resource_path('icons/icon.png')
+            elif sys.platform == "win32":  # Windows
+                icon_path = self.resource_path('icons/icon.ico')
+            else:  # Linux
+                icon_path = self.resource_path('icons/icon.png')
+
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                # Также установить иконку для всего приложения
+                app = QApplication.instance()
+                if app:
+                    app.setWindowIcon(QIcon(icon_path))
+            else:
+                print(f"Иконка не найдена: {icon_path}")
+
+        except Exception as e:
+            print(f"Ошибка при установке иконки: {e}")
+
+    @staticmethod
+    def resource_path(relative_path):
+        """Получить абсолютный путь к ресурсу"""
+        try:
+            base_path = sys._MEIPASS  # PyInstaller создает временную папку
+        except Exception:
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
 
     def init_ui(self):
         layout = QVBoxLayout()
