@@ -18,6 +18,7 @@ import pandas as pd
 import os
 os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
+ICONS = 'icons/icon.ico'
 
 
 class LoginWindow(QWidget):
@@ -26,7 +27,7 @@ class LoginWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowIcon(QIcon('icon.ico'))
+        self.setWindowIcon(QIcon(ICONS))
         self.setWindowTitle('Авторизация')
         self.setFixedSize(400, 300)
         self.init_ui()
@@ -126,6 +127,12 @@ class ApplicantDialog(QDialog):
         self.category = QComboBox()
         self.category.addItems(['муж', 'жен', 'в/сл'])
 
+        # Поле телефона с валидацией
+        self.phone = QLineEdit()
+        self.phone.setPlaceholderText('+7 (XXX) XXX-XX-XX')
+        self.phone.setInputMask('+7 (999) 999-99-99;_')
+        self.phone.textChanged.connect(self.validate_phone)
+
         self.applicant_name = QLineEdit()
         self.phone = QLineEdit()
 
@@ -188,6 +195,63 @@ class ApplicantDialog(QDialog):
 
         self.setLayout(layout)
 
+    def validate_phone(self, text):
+        """Валидация номера телефона"""
+        # Удаляем маску для проверки
+        clean_text = text.replace('(', '').replace(')', '').replace('-', '').replace(' ', '').replace('_', '').replace(
+            '+', '')
+
+        # Если номер неполный, сбрасываем маску
+        if len(clean_text) < 11:
+            self.phone.setStyleSheet("")
+        else:
+            self.phone.setStyleSheet("border: 1px solid green;")
+
+    def get_data(self):
+        """Получение данных из формы"""
+        phone_text = self.phone.text()
+        # Очищаем номер от маски
+        clean_phone = self.clean_phone_number(phone_text)
+
+        return {
+            'study_group': self.study_group.text().strip(),
+            'rank': self.rank.currentText(),
+            'student_name': self.student_name.text().strip(),
+            'region': self.region.text().strip(),
+            'city': self.city.text().strip(),
+            'category': self.category.currentText(),
+            'applicant_name': self.applicant_name.text().strip(),
+            'phone': clean_phone,  # Сохраняем очищенный номер
+            'status': self.status.currentText(),
+            'document_status': self.document_status.currentText(),
+            'notes': self.notes.toPlainText().strip(),
+            'course': self.course.currentText(),
+        }
+
+    @staticmethod
+    def clean_phone_number(phone):
+        """Очистка номера телефона от форматирования"""
+        if not phone:
+            return ""
+
+        # Удаляем все нецифровые символы
+        digits = ''.join(filter(str.isdigit, phone))
+
+        if not digits:
+            return phone
+
+        # Если номер начинается с 8 и имеет 11 цифр
+        if digits.startswith('8') and len(digits) == 11:
+            return '7' + digits[1:]
+        # Если номер имеет 10 цифр (без кода страны)
+        elif len(digits) == 10:
+            return '7' + digits
+        # Если номер уже в правильном формате
+        elif digits.startswith('7') and len(digits) == 11:
+            return digits
+
+        return phone
+
     def get_data(self):
         """Получение данных из формы"""
         return {
@@ -203,7 +267,7 @@ class ApplicantDialog(QDialog):
             'document_status': self.document_status.currentText(),
             'notes': self.notes.toPlainText().strip(),
             'course': self.course.currentText(),
-            'faculty': self.faculty.text().strip()
+            # 'faculty': self.faculty.text().strip()
         }
 
 
@@ -239,9 +303,6 @@ class UserDialog(QDialog):
 
         self.course = QComboBox()
         self.course.addItems(['', '1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
-
-        # self.faculty = QLineEdit()
-        # self.faculty.setPlaceholderText('Введите факультет')
 
         # Добавление полей в форму
         form_layout.addRow('Логин:', self.username)
@@ -304,7 +365,7 @@ class PermissionDialog(QDialog):
 
         # Поля формы
         self.permission_type = QComboBox()
-        self.permission_type.addItems(['all', 'course', 'faculty'])
+        self.permission_type.addItems(['all', 'course'])
         self.permission_type.currentTextChanged.connect(self.update_fields)
 
         self.course = QComboBox()
@@ -609,7 +670,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, user_data):
         super().__init__()
-        self.setWindowIcon(QIcon('icon.ico'))
+        self.setWindowIcon(QIcon(ICONS))
         self.user_data = user_data
         self.db = Database()
         self.init_ui()
@@ -628,30 +689,30 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         # Действия
-        add_action = QAction('➕ Добавить', self)
+        add_action = QAction(QIcon("icons/add_document.png"), 'Добавить', self)
         add_action.triggered.connect(self.add_applicant)
         toolbar.addAction(add_action)
 
-        edit_action = QAction('✏ Редактировать', self)
+        edit_action = QAction(QIcon("icons/pencel.png"), 'Редактировать', self)
         edit_action.triggered.connect(self.edit_applicant)
         toolbar.addAction(edit_action)
 
-        delete_action = QAction('🗑️ Удалить', self)
+        delete_action = QAction(QIcon("icons/delete_document.png"), '️Удалить', self)
         delete_action.triggered.connect(self.delete_applicant)
         toolbar.addAction(delete_action)
 
         toolbar.addSeparator()
 
         # Кнопка выхода
-        logout_action = QAction('🚪 Выход', self)
+        logout_action = QAction(QIcon("icons/logout.png"), 'Выход', self)
         logout_action.triggered.connect(self.logout)
         toolbar.addAction(logout_action)
 
-        import_action = QAction('📁 Импорт из Excel', self)
+        import_action = QAction(QIcon("icons/import.png"), 'Импорт из Excel', self)
         import_action.triggered.connect(self.import_from_excel)
         toolbar.addAction(import_action)
 
-        export_action = QAction('💾 Экспорт', self)
+        export_action = QAction(QIcon("icons/export.png"), 'Экспорт', self)
         export_action.triggered.connect(self.export_data)
         toolbar.addAction(export_action)
 
@@ -661,7 +722,7 @@ class MainWindow(QMainWindow):
         # Вкладка с данными
         self.data_tab = QWidget()
         self.init_data_tab()
-        self.tab_widget.addTab(self.data_tab, '📋 Данные абитуриентов')
+        self.tab_widget.addTab(self.data_tab, QIcon("icons/information.png"), 'Данные абитуриентов')
 
         # Вкладка со статистикой
         self.stats_tab = StatisticsWidget(
@@ -669,13 +730,13 @@ class MainWindow(QMainWindow):
             self.user_data['role'],
             self.db
         )
-        self.tab_widget.addTab(self.stats_tab, '📊 Статистика')
+        self.tab_widget.addTab(self.stats_tab, QIcon("icons/stata.png"), 'Статистика')
 
         # Вкладка настроек (только для админа)
         if self.user_data['role'] == 'admin':
             self.settings_tab = QWidget()
             self.init_settings_tab()
-            self.tab_widget.addTab(self.settings_tab, '⚙ Настройки (админ)')
+            self.tab_widget.addTab(self.settings_tab, QIcon("icons/settings.png"), 'Настройки (админ)')
 
         main_layout.addWidget(self.tab_widget)
 
@@ -734,9 +795,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(filter_widget)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(11)  # Было 11
+        self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
-            'ID', 'Уч. группа', 'Звание', 'ФИО студента',
+            "ID",'Уч. группа', 'Звание', 'ФИО студента',
             'Регион', 'Город', 'Категория', 'ФИО абитуриента',
             'Телефон', 'Статус', 'Документы'
         ])
@@ -746,6 +807,18 @@ class MainWindow(QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        # Установка минимальных размеров для колонок
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+
+        # Особые настройки для определенных колонок
+        self.table.setColumnWidth(2, 200)  # ФИО студента
+        self.table.setColumnWidth(6, 200)  # ФИО абитуриента
+        self.table.setColumnWidth(7, 120)  # Телефон
+
+        # Включаем tooltip для отображения полного текста
+        self.table.setMouseTracking(True)
+        self.table.viewport().installEventFilter(self)
 
         layout.addWidget(self.table)
 
@@ -761,12 +834,12 @@ class MainWindow(QMainWindow):
         # Вкладка пользователей
         self.users_tab = QWidget()
         self.init_users_tab()
-        self.admin_tabs.addTab(self.users_tab, '👥 Пользователи')
+        self.admin_tabs.addTab(self.users_tab, QIcon('icons/users.png'), 'Пользователи')
 
         # Вкладка прав доступа
         self.permissions_tab = QWidget()
         self.init_permissions_tab()
-        self.admin_tabs.addTab(self.permissions_tab, '🔒 Права доступа')
+        self.admin_tabs.addTab(self.permissions_tab, QIcon('icons/rules.png'), 'Права доступа')
 
         layout.addWidget(self.admin_tabs)
         self.settings_tab.setLayout(layout)
@@ -780,13 +853,13 @@ class MainWindow(QMainWindow):
         controls_layout = QHBoxLayout()
 
         # Кнопки
-        self.add_user_btn = QPushButton('➕ Добавить пользователя')
+        self.add_user_btn = QPushButton(QIcon('icons/add_user.png'), 'Добавить пользователя')
         self.add_user_btn.clicked.connect(self.add_user)
 
-        self.edit_user_btn = QPushButton('✏ Редактировать')
+        self.edit_user_btn = QPushButton(QIcon('icons/edit_user.png'), 'Редактировать пользователя')
         self.edit_user_btn.clicked.connect(self.edit_user)
 
-        self.delete_user_btn = QPushButton('🗑️ Удалить')
+        self.delete_user_btn = QPushButton(QIcon('icons/delete_user.png'), 'Удалить пользователя')
         self.delete_user_btn.clicked.connect(self.delete_user)
 
         # Поиск
@@ -824,6 +897,36 @@ class MainWindow(QMainWindow):
 
         # Загрузка пользователей
         self.refresh_users()
+
+    # Добавьте этот метод в класс MainWindow или как статический метод:
+
+    def format_phone_number(self, phone):
+        """Форматирование номера телефона в стандартный формат"""
+        if not phone:
+            return ""
+
+        # Удаляем все нецифровые символы
+        digits = ''.join(filter(str.isdigit, str(phone)))
+
+        # Проверяем длину
+        if len(digits) < 10:
+            return phone  # Возвращаем как есть, если номер слишком короткий
+
+        # Определяем код страны
+        if digits.startswith('8') and len(digits) == 11:
+            # Российский номер в формате 8XXXXXXXXXX
+            digits = '7' + digits[1:]
+        elif digits.startswith('7') and len(digits) == 11:
+            pass  # Уже в правильном формате
+        elif len(digits) == 10:
+            # Номер без кода страны
+            digits = '7' + digits
+
+        # Форматируем в стандартный вид
+        if len(digits) >= 11:
+            return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:]}"
+
+        return phone
 
     def init_permissions_tab(self):
         """Инициализация вкладки прав доступа"""
@@ -982,7 +1085,9 @@ class MainWindow(QMainWindow):
 
         for row, applicant in enumerate(applicants):
             applicant_dict = dict(applicant)
-
+            phone = applicant_dict.get('phone', '')
+            formatted_phone = self.format_phone_number(phone)
+            # Создаем элементы для ячеек
             items = [
                 QTableWidgetItem(str(applicant_dict.get('id', ''))),
                 QTableWidgetItem(applicant_dict.get('study_group', '')),
@@ -992,12 +1097,64 @@ class MainWindow(QMainWindow):
                 QTableWidgetItem(applicant_dict.get('city', '')),
                 QTableWidgetItem(applicant_dict.get('category', '')),
                 QTableWidgetItem(applicant_dict.get('applicant_name', '')),
-                QTableWidgetItem(applicant_dict.get('phone', '')),
+                QTableWidgetItem(formatted_phone),
                 QTableWidgetItem(applicant_dict.get('status', '')),
                 QTableWidgetItem(applicant_dict.get('document_status', '')),
-                QTableWidgetItem(applicant_dict.get('course', '')),  # Добавлен курс
             ]
 
+            # Цвет для статуса (колонка 9 - индекс 9)
+            status = applicant_dict.get('status', '').strip()
+            if '1)поступает' == status:
+                # Зеленый для поступающих
+                status_item = items[9]
+                status_item.setBackground(QColor(230, 255, 230))  # Светло-зеленый фон
+                status_item.setForeground(QColor(0, 100, 0))  # Темно-зеленый текст
+            elif '2)не поступает' == status:
+                # Красный для отказавшихся
+                status_item = items[9]
+                status_item.setBackground(QColor(255, 230, 230))  # Светло-красный фон
+                status_item.setForeground(QColor(150, 0, 0))  # Темно-красный текст
+
+            # Цвет для пола (колонка 6 - индекс 6)
+            category = applicant_dict.get('category', '')
+            category_item = items[6]
+            if category == 'муж':
+                category_item.setBackground(QColor(230, 240, 255))  # Очень светло-голубой
+            elif category == 'жен':
+                category_item.setBackground(QColor(255, 230, 240))  # Очень светло-розовый
+            elif category == 'в/сл':
+                category_item.setBackground(QColor(230, 255, 230))  # Светло-зеленый
+
+            # Проверяем пустые поля и подсвечиваем их
+            empty_fields = []
+            column_names = [
+                'ID', 'Уч. группа', 'Звание', 'ФИО студента',
+                'Регион', 'Город', 'Категория',
+                'ФИО абитуриента', 'Телефон', 'Статус', 'Документы'
+            ]
+
+            for col in range(len(items)):
+                cell_text = items[col].text().strip()
+                if not cell_text:
+                    # Подсвечиваем пустые поля желтым цветом
+                    items[col].setBackground(QColor(255, 255, 200))  # Светло-желтый
+                    empty_fields.append(column_names[col])
+
+            # Если в строке есть пустые поля, делаем ФИО абитуриента жирным
+            if empty_fields:
+                items[7].setFont(QFont("Arial", 9, QFont.Weight.Bold))
+
+            # Добавляем tooltip для пустых полей
+            if empty_fields:
+                items[7].setToolTip(f"Пустые поля: {', '.join(empty_fields)}")
+
+            # Специальная подсветка для важных полей
+            important_fields = [3, 7, 8]  # ФИО студента, ФИО абитуриента, Телефон
+            for col in important_fields:
+                if not items[col].text().strip():
+                    items[col].setBackground(QColor(255, 220, 220))  # Более заметный розовый
+
+            # Добавляем элементы в таблицу
             for col, item in enumerate(items):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)
@@ -1447,15 +1604,15 @@ class MainWindow(QMainWindow):
                                                    'Город/населенный пункт']),
                 'category': self._get_cell_value(row, ['категория', 'Категория', 'пол', 'Пол', 'Кат.'], 'муж'),
                 'applicant_name': applicant_name,
-                'phone': self._get_cell_value(row, ['Телефон', 'телефон', 'контактный телефон', 'Телефон абитуриента',
-                                                    'Тел.']),
+                'phone': self.format_imported_phone(
+                self._get_cell_value(row, ['Телефон', 'телефон', 'контактный телефон', 'Телефон абитуриента', 'Тел.'])),
                 'status': self._get_cell_value(row, ['Статус', 'статус', 'Статус поступления', 'Статус абитуриента'],
                                                'поступает'),
                 'document_status': self._get_cell_value(row, ['Состояние личного дела на поступление', 'Документы',
                                                               'документы', 'Статус документов']),
                 'notes': self._get_cell_value(row, ['Примечание', 'примечание', 'комментарий', 'Комментарий', 'Прим.']),
                 'course': course,
-                'faculty': self._get_cell_value(row, ['Факультет', 'факультет', 'Факультет/отделение', 'Отделение'])
+                # 'faculty': self._get_cell_value(row, ['Факультет', 'факультет', 'Факультет/отделение', 'Отделение'])
             }
 
             # Нормализация статуса
@@ -1493,6 +1650,30 @@ class MainWindow(QMainWindow):
             if col in row and pd.notna(row[col]):
                 return str(row[col]).strip()
         return default
+
+    @staticmethod
+    def format_imported_phone(phone):
+        """Форматирование номера телефона при импорте"""
+        if not phone:
+            return ""
+
+        # Удаляем все нецифровые символы
+        digits = ''.join(filter(str.isdigit, str(phone)))
+
+        if not digits:
+            return phone
+
+        # Приводим к стандартному формату
+        if digits.startswith('8') and len(digits) == 11:
+            # 8XXXXXXXXXX -> 7XXXXXXXXXX
+            return '7' + digits[1:]
+        elif len(digits) == 10:
+            # XXXXXXXXXX -> 7XXXXXXXXXX
+            return '7' + digits
+        elif digits.startswith('7') and len(digits) == 11:
+            return digits
+
+        return phone
 
     def check_duplicate(self, applicant_data):
         """Проверка на дубликат (все пользователи)"""
