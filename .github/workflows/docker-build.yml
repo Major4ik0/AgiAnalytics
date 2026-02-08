@@ -39,18 +39,17 @@ jobs:
           # Удаляем старые spec файлы если есть
           Remove-Item -Force win7_spec.spec -ErrorAction SilentlyContinue
           
-          # Создаем spec файл через pyinstaller
-          pyinstaller --onefile --windowed --name="AgiAnalytics_Win7_x86" --noupx --disable-windowed-traceback --clean --noconfirm main.py --specpath .
+          # Создаем spec файл через pyinstaller без параметра disable_windowed_traceback
+          pyinstaller --onefile --windowed --name="AgiAnalytics_Win7_x86" --noupx --clean --noconfirm main.py --specpath .
           
           # Редактируем созданный spec файл
           $specFile = "AgiAnalytics_Win7_x86.spec"
           if (Test-Path $specFile) {
             $content = Get-Content $specFile -Raw
             $content = $content -replace "upx=True", "upx=False"
-            $content = $content -replace "console=False", "console=False`n    disable_windowed_traceback=True"
             
             # Добавляем hidden imports
-              if ($content -match "hiddenimports=\[") {
+            if ($content -match "hiddenimports=\[") {
               $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'`n"
               $content = $content -replace "hiddenimports=\[", $replacement
             }
@@ -121,17 +120,17 @@ jobs:
         run: |
           Remove-Item -Force AgiAnalytics_Win7_x64.spec -ErrorAction SilentlyContinue
           
-          pyinstaller --onefile --windowed --name="AgiAnalytics_Win7_x64" --noupx --disable-windowed-traceback --clean --noconfirm main.py --specpath .
+          # Создаем spec файл без параметра disable_windowed_traceback
+          pyinstaller --onefile --windowed --name="AgiAnalytics_Win7_x64" --noupx --clean --noconfirm main.py --specpath .
           
           $specFile = "AgiAnalytics_Win7_x64.spec"
           if (Test-Path $specFile) {
             $content = Get-Content $specFile -Raw
             $content = $content -replace "upx=True", "upx=False"
-            $content = $content -replace "console=False", "console=False`n    disable_windowed_traceback=True"
             
             if ($content -match "hiddenimports=\[") {
-                $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'`n"
-                $content = $content -replace "hiddenimports=\[", $replacement
+              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx'`n"
+              $content = $content -replace "hiddenimports=\[", $replacement
             }
             
             Set-Content -Path $specFile -Value $content -Encoding UTF8

@@ -71,7 +71,6 @@ class LoginWindow(QWidget):
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_label.setStyleSheet('color: #666; font-style: italic;')
         layout.addWidget(info_label)
-
         self.setLayout(layout)
 
     def authenticate(self):
