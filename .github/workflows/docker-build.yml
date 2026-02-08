@@ -31,19 +31,27 @@ jobs:
 
       - name: Create custom spec file for Windows 7 x86
         run: |
+          # Удаляем старые spec файлы если есть
           Remove-Item -Force win7_spec.spec -ErrorAction SilentlyContinue
+          
+          # Создаем spec файл через pyinstaller без параметра disable_windowed_traceback
           pyinstaller --onefile --windowed --icon=icon.ico --name="AgiAnalytics_Win7_x86" --noupx --clean --noconfirm main.py --specpath .
+          
+          # Редактируем созданный spec файл
           $specFile = "AgiAnalytics_Win7_x86.spec"
           if (Test-Path $specFile) {
             $content = Get-Content $specFile -Raw
             $content = $content -replace "upx=True", "upx=False"
+            
+            # Добавляем hidden imports
             if ($content -match "hiddenimports=\[") {
-              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx',`n    'encodings', 'encodings.utf_8', 'encodings.cp1251',`n    'xlwt', 'xlwt.ExcelFormula', 'xlwt.ExcelFormulaParser',`n    'msoffcrypto', 'msoffcrypto.format', 'msoffcrypto.exceptions',`n    'olefile', 'olefile.OleFileIO', 'olefile.__version__',`n    'os', 'sys', 'io', 'pathlib', 'json', 'hashlib', 'base64', 'zipfile'`n"
+              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx',`n    'encodings', 'encodings.utf_8', 'encodings.cp1251',`n    'xlwt', 'xlwt.ExcelFormula', 'xlwt.ExcelFormulaParser',`n    'msoffcrypto', 'msoffcrypto.format', 'msoffcrypto.exceptions',`n    'olefile', 'olefile.OleFileIO', 'olefile.__version__',`n    'os', 'sys', 'io', 'pathlib', 'json', 'hashlib', 'base64', 'zipfile'`n"              
               $content = $content -replace "hiddenimports=\[", $replacement
             }
             if ($content -match "datas=\[\]") {
-              $content = $content -replace "datas=\[\]", "datas=[('icon.ico', '.'), ('config/*', 'config'), ('templates/*', 'templates')]"
-            }
+                $content = $content -replace "datas=\[\]", "datas=[('icon.ico', '.'), ('config/*', 'config'), ('templates/*', 'templates')]"
+              }
+            
             Set-Content -Path $specFile -Value $content -Encoding UTF8
             Write-Host "✅ Spec файл создан: $specFile"
           }
@@ -52,13 +60,18 @@ jobs:
         run: |
           $exe_name = "AgiAnalytics_Win7_x86"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
+          # Строим используя spec файл без дополнительных параметров
           pyinstaller AgiAnalytics_Win7_x86.spec
+          
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка успешна для Windows 7 x86"
+            # Показываем размер файла
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
             Write-Host "📦 Размер файла: $($size.ToString('0.00')) MB"
           } else {
             Write-Error "❌ Ошибка сборки для Windows 7 x86"
+            # Показываем логи если есть
             if (Test-Path "build") {
               Get-ChildItem -Path "build" -Recurse -Filter "*.log" | ForEach-Object {
                 Write-Host "📄 Лог файл: $($_.FullName)"
@@ -96,18 +109,23 @@ jobs:
       - name: Create custom spec file for Windows 7 x64
         run: |
           Remove-Item -Force AgiAnalytics_Win7_x64.spec -ErrorAction SilentlyContinue
+          
+          # Создаем spec файл без параметра disable_windowed_traceback
           pyinstaller --onefile --windowed --icon=icon.ico --name="AgiAnalytics_Win7_x64" --noupx --clean --noconfirm main.py --specpath .
+          
           $specFile = "AgiAnalytics_Win7_x64.spec"
           if (Test-Path $specFile) {
             $content = Get-Content $specFile -Raw
             $content = $content -replace "upx=True", "upx=False"
+            
             if ($content -match "hiddenimports=\[") {
-              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx',`n    'encodings', 'encodings.utf_8', 'encodings.cp1251',`n    'xlwt', 'xlwt.ExcelFormula', 'xlwt.ExcelFormulaParser',`n    'msoffcrypto', 'msoffcrypto.format', 'msoffcrypto.exceptions',`n    'olefile', 'olefile.OleFileIO', 'olefile.__version__',`n    'os', 'sys', 'io', 'pathlib', 'json', 'hashlib', 'base64', 'zipfile'`n"
+              $replacement = "hiddenimports=[`n    'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',`n    'pandas', 'numpy', 'numpy.core._multiarray_umath',`n    'openpyxl', 'openpyxl.cell._writer', 'openpyxl.utils',`n    'sqlite3', 'PIL', 'PIL._imaging', 'PIL.Image',`n    'xlrd', 'xlrd.compdoc', 'xlrd.xlsx',`n    'encodings', 'encodings.utf_8', 'encodings.cp1251',`n    'xlwt', 'xlwt.ExcelFormula', 'xlwt.ExcelFormulaParser',`n    'msoffcrypto', 'msoffcrypto.format', 'msoffcrypto.exceptions',`n    'olefile', 'olefile.OleFileIO', 'olefile.__version__',`n    'os', 'sys', 'io', 'pathlib', 'json', 'hashlib', 'base64', 'zipfile'`n"            
               $content = $content -replace "hiddenimports=\[", $replacement
             }
             if ($content -match "datas=\[\]") {
-              $content = $content -replace "datas=\[\]", "datas=[('icon.ico', '.'), ('config/*', 'config'), ('templates/*', 'templates')]"
+                $content = $content -replace "datas=\[\]", "datas=[('icon.ico', '.'), ('config/*', 'config'), ('templates/*', 'templates')]"
             }
+            
             Set-Content -Path $specFile -Value $content -Encoding UTF8
             Write-Host "✅ Spec файл создан: $specFile"
           }
@@ -116,7 +134,9 @@ jobs:
         run: |
           $exe_name = "AgiAnalytics_Win7_x64"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
           pyinstaller AgiAnalytics_Win7_x64.spec
+          
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка успешна для Windows 7 x64"
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
@@ -156,6 +176,7 @@ jobs:
           $exe_name = "AgiAnalytics_Win10_x86"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
           pyinstaller --onefile --windowed --icon=icon.ico --name="$exe_name" --clean --hidden-import=PyQt5 --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets --hidden-import=pandas --hidden-import=numpy --hidden-import=numpy.core._multiarray_umath --hidden-import=openpyxl --hidden-import=openpyxl.cell._writer --hidden-import=openpyxl.utils --hidden-import=sqlite3 --hidden-import=PIL --hidden-import=PIL._imaging --hidden-import=PIL.Image --hidden-import=xlrd --hidden-import=xlrd.compdoc --hidden-import=xlrd.xlsx --hidden-import=msoffcrypto --hidden-import=olefile --add-data="icon.ico;." --add-data="config;config" --add-data="templates;templates" main.py
+          
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка успешна для Windows 10 x86"
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
@@ -194,7 +215,9 @@ jobs:
         run: |
           $exe_name = "AgiAnalytics_Win10_x64"
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+          
           pyinstaller --onefile --windowed --icon=icon.ico --name="$exe_name" --clean --hidden-import=PyQt5 --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets --hidden-import=pandas --hidden-import=numpy --hidden-import=numpy.core._multiarray_umath --hidden-import=openpyxl --hidden-import=openpyxl.cell._writer --hidden-import=openpyxl.utils --hidden-import=sqlite3 --hidden-import=PIL --hidden-import=PIL._imaging --hidden-import=PIL.Image --hidden-import=xlrd --hidden-import=xlrd.compdoc --hidden-import=xlrd.xlsx --hidden-import=msoffcrypto --hidden-import=olefile --add-data="icon.ico;." --add-data="config;config" --add-data="templates;templates" main.py
+          
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка успешна для Windows 10 x64"
             $size = (Get-Item "dist/$exe_name.exe").Length / 1MB
@@ -212,11 +235,12 @@ jobs:
 
   create-release:
     name: Create Release Package
-    needs: [build-win7-x86, build-win7-x64, build-win10-x86, build-win10-x64]
+    needs: [ build-win7-x86, build-win7-x64, build-win10-x86, build-win10-x64 ]
     runs-on: windows-latest
+    # Убедись, что релиз создается только при пушке в main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
-      contents: write
+      contents: write  # Добавляем права на запись в репозиторий
 
     steps:
       - name: Download all artifacts
@@ -226,25 +250,33 @@ jobs:
 
       - name: Create release structure
         run: |
+          # Создаем имя релиза с версией
           $version = $env:GITHUB_RUN_NUMBER
           $releaseName = "AgiAnalytics_v$version"
+
           New-Item -ItemType Directory -Force -Path $releaseName
+
           $folders = @("Windows_7_32bit", "Windows_7_64bit", "Windows_10_32bit", "Windows_10_64bit")
           foreach ($folder in $folders) {
             New-Item -ItemType Directory -Force -Path "$releaseName\$folder"
           }
+
           if (Test-Path "artifacts/AgiAnalytics-Win7-x86/AgiAnalytics_Win7_x86.exe") {
             Copy-Item "artifacts/AgiAnalytics-Win7-x86/AgiAnalytics_Win7_x86.exe" "$releaseName\Windows_7_32bit\"
           }
+
           if (Test-Path "artifacts/AgiAnalytics-Win7-x64/AgiAnalytics_Win7_x64.exe") {
             Copy-Item "artifacts/AgiAnalytics-Win7-x64/AgiAnalytics_Win7_x64.exe" "$releaseName\Windows_7_64bit\"
           }
+
           if (Test-Path "artifacts/AgiAnalytics-Win10-x86/AgiAnalytics_Win10_x86.exe") {
             Copy-Item "artifacts/AgiAnalytics-Win10-x86/AgiAnalytics_Win10_x86.exe" "$releaseName\Windows_10_32bit\"
           }
+
           if (Test-Path "artifacts/AgiAnalytics-Win10-x64/AgiAnalytics_Win10_x64.exe") {
             Copy-Item "artifacts/AgiAnalytics-Win10-x64/AgiAnalytics_Win10_x64.exe" "$releaseName\Windows_10_64bit\"
           }
+
           $launcherContent = @'
           @echo off
           chcp 65001 >nul
@@ -253,14 +285,23 @@ jobs:
           echo ========================================
           echo.
           echo Определение системы...
+
           set OS=
           set ARCH=
+
           ver | findstr /i "6\.1" >nul && set OS=7
           ver | findstr /i "10\." >nul && set OS=10
-          if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (set ARCH=x64) else (set ARCH=x86)
+
+          if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
+              set ARCH=x64
+          ) else (
+              set ARCH=x86
+          )
+
           echo.
           echo Обнаружено: Windows %OS% (%ARCH%)
           echo.
+
           if "%OS%"=="7" (
               echo ⚠️  ВАЖНО: Для Windows 7 требуются дополнительные компоненты
               echo    1. Установите VC++ Redistributable
@@ -268,6 +309,7 @@ jobs:
               echo.
               pause
           )
+
           if exist "Windows_%OS%_%ARCH%\AgiAnalytics_Win%OS%_%ARCH%.exe" (
               echo Запуск AgiAnalytics_Win%OS%_%ARCH%.exe...
               start "" "Windows_%OS%_%ARCH%\AgiAnalytics_Win%OS%_%ARCH%.exe"
@@ -276,30 +318,33 @@ jobs:
               pause
           )
           '@
+
           Set-Content -Path "$releaseName\Start_AgiAnalytics.bat" -Value $launcherContent -Encoding UTF8
+
           $readmeContent = @"
           ========================================
           AgiAnalytics v$version
           ========================================
-          
+
           ИСПОЛЬЗОВАНИЕ:
           1. Распакуйте архив
           2. Запустите Start_AgiAnalytics.bat
           3. Программа определит вашу систему
-          
+
           ВАЖНО ДЛЯ WINDOWS 7:
           1. Visual C++ Redistributable 2015-2022
           2. Обновление KB2999226
           3. Все обновления Windows
-          
+
           ИСПРАВЛЕНИЕ ОШИБОК:
           1. Ошибка api-ms-win-core-path-l1-1-0.dll - установите KB2999226
           2. Ошибка VCRUNTIME140.dll - установите VC++ Redistributable
           3. Антивирус блокирует - добавьте исключение
-          
+
           ПОДДЕРЖКА:
           GitHub Issues: https://github.com/${{ github.repository }}/issues
           "@
+
           Set-Content -Path "$releaseName\README.txt" -Value $readmeContent -Encoding UTF8
 
       - name: Create ZIP archive
@@ -318,10 +363,38 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          # Используем автоматически сгенерированный GITHUB_TOKEN
           token: ${{ secrets.GITHUB_TOKEN }}
           files: AgiAnalytics_v${{ github.run_number }}.zip
           tag_name: v${{ github.run_number }}
           name: AgiAnalytics v${{ github.run_number }}
-          generate_release_notes: true
+          generate_release_notes: true  # Добавляем автоматические заметки о релизе
           draft: false
           prerelease: false
+          body: |
+            # 🚀 AgiAnalytics v${{ github.run_number }}
+
+            ## 📦 СОДЕРЖИМОЕ АРХИВА:
+
+            - `Windows_7_32bit/` - Windows 7 32-bit
+            - `Windows_7_64bit/` - Windows 7 64-bit  
+            - `Windows_10_32bit/` - Windows 10 32-bit
+            - `Windows_10_64bit/` - Windows 10 64-bit
+            - `Start_AgiAnalytics.bat` - автоматический запуск
+            - `README.txt` - инструкция
+
+            ## ⚠️ ДЛЯ WINDOWS 7:
+
+            1. [VC++ Redistributable x86](https://aka.ms/vs/17/release/vc_redist.x86.exe)
+            2. [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+            3. [KB2999226 x86](https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2015/07/windows6.1-kb2999226-x86.msu)
+            4. [KB2999226 x64](https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2015/07/windows6.1-kb2999226-x64.msu)
+
+            ## 📊 ТЕХНИЧЕСКИЕ ДЕТАЛИ:
+
+            | Система | Python | Архитектура | PyInstaller |
+            |---------|--------|-------------|-------------|
+            | Windows 7 | 3.8.10 | x86/x64 | 5.0.1 |
+            | Windows 10 | 3.9.13 | x86/x64 | 5.12.0 |
+
+            [Сообщить о проблеме](https://github.com/${{ github.repository }}/issues/new)
