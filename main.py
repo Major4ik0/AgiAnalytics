@@ -13,12 +13,14 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
 from datetime import datetime
 from database import Database
+from resource_helper import get_icon_path, resource_path
 from statistics_widget import StatisticsWidget
 import pandas as pd
 import os
+
 os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
-ICONS = 'icons/icon.ico'
+ICONS = ICONS = get_icon_path("icon.ico") or "icons/icon.ico"
 
 
 class LoginWindow(QWidget):
@@ -293,11 +295,11 @@ class UserDialog(QDialog):
         try:
             if sys.platform == "darwin":  # macOS
                 # Для macOS можно попробовать .png или .icns
-                icon_path = self.resource_path('icons/icon.png')
+                icon_path = resource_path('icons/icon.png')
             elif sys.platform == "win32":  # Windows
-                icon_path = self.resource_path('icons/icon.ico')
+                icon_path = resource_path('icons/icon.ico')
             else:  # Linux
-                icon_path = self.resource_path('icons/icon.png')
+                icon_path = resource_path('icons/icon.png')
 
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
@@ -310,16 +312,6 @@ class UserDialog(QDialog):
 
         except Exception as e:
             print(f"Ошибка при установке иконки: {e}")
-
-    @staticmethod
-    def resource_path(relative_path):
-        """Получить абсолютный путь к ресурсу"""
-        try:
-            base_path = sys._MEIPASS  # PyInstaller создает временную папку
-        except Exception:
-            base_path = os.path.abspath(".")
-
-        return os.path.join(base_path, relative_path)
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -704,7 +696,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self, user_data):
         super().__init__()
-        self.setWindowIcon(QIcon(ICONS))
+        icon_path = get_icon_path("icon.ico")
+        if icon_path and os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         self.user_data = user_data
         self.db = Database()
         self.init_ui()
@@ -723,30 +717,30 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         # Действия
-        add_action = QAction(QIcon("icons/add_document.png"), 'Добавить', self)
+        add_action = QAction(QIcon(resource_path("icons/add_document.png")), 'Добавить', self)
         add_action.triggered.connect(self.add_applicant)
         toolbar.addAction(add_action)
 
-        edit_action = QAction(QIcon("icons/pencel.png"), 'Редактировать', self)
+        edit_action = QAction(QIcon(resource_path("icons/pencel.png")), 'Редактировать', self)
         edit_action.triggered.connect(self.edit_applicant)
         toolbar.addAction(edit_action)
 
-        delete_action = QAction(QIcon("icons/delete_document.png"), '️Удалить', self)
+        delete_action = QAction(QIcon(resource_path("icons/delete_document.png")), '️Удалить', self)
         delete_action.triggered.connect(self.delete_applicant)
         toolbar.addAction(delete_action)
 
         toolbar.addSeparator()
 
         # Кнопка выхода
-        logout_action = QAction(QIcon("icons/logout.png"), 'Выход', self)
+        logout_action = QAction(QIcon(resource_path("icons/logout.png")), 'Выход', self)
         logout_action.triggered.connect(self.logout)
         toolbar.addAction(logout_action)
 
-        import_action = QAction(QIcon("icons/import.png"), 'Импорт из Excel', self)
+        import_action = QAction(QIcon(resource_path("icons/import.png")), 'Импорт из Excel', self)
         import_action.triggered.connect(self.import_from_excel)
         toolbar.addAction(import_action)
 
-        export_action = QAction(QIcon("icons/export.png"), 'Экспорт', self)
+        export_action = QAction(QIcon(resource_path("icons/export.png")), 'Экспорт', self)
         export_action.triggered.connect(self.export_data)
         toolbar.addAction(export_action)
 
@@ -756,7 +750,7 @@ class MainWindow(QMainWindow):
         # Вкладка с данными
         self.data_tab = QWidget()
         self.init_data_tab()
-        self.tab_widget.addTab(self.data_tab, QIcon("icons/information.png"), 'Данные абитуриентов')
+        self.tab_widget.addTab(self.data_tab, QIcon(resource_path("icons/information.png")), 'Данные абитуриентов')
 
         # Вкладка со статистикой
         self.stats_tab = StatisticsWidget(
@@ -764,13 +758,13 @@ class MainWindow(QMainWindow):
             self.user_data['role'],
             self.db
         )
-        self.tab_widget.addTab(self.stats_tab, QIcon("icons/stata.png"), 'Статистика')
+        self.tab_widget.addTab(self.stats_tab, QIcon(resource_path("icons/stata.png")), 'Статистика')
 
         # Вкладка настроек (только для админа)
         if self.user_data['role'] == 'admin':
             self.settings_tab = QWidget()
             self.init_settings_tab()
-            self.tab_widget.addTab(self.settings_tab, QIcon("icons/settings.png"), 'Настройки (админ)')
+            self.tab_widget.addTab(self.settings_tab, QIcon(resource_path("icons/settings.png")), 'Настройки (админ)')
 
         main_layout.addWidget(self.tab_widget)
 
@@ -868,7 +862,7 @@ class MainWindow(QMainWindow):
         # Вкладка пользователей
         self.users_tab = QWidget()
         self.init_users_tab()
-        self.admin_tabs.addTab(self.users_tab, QIcon('icons/users.png'), 'Пользователи')
+        self.admin_tabs.addTab(self.users_tab, QIcon(resource_path("icons/users.png")), 'Пользователи')
 
         # Вкладка прав доступа
         self.permissions_tab = QWidget()
@@ -887,13 +881,13 @@ class MainWindow(QMainWindow):
         controls_layout = QHBoxLayout()
 
         # Кнопки
-        self.add_user_btn = QPushButton(QIcon('icons/add_user.png'), 'Добавить пользователя')
+        self.add_user_btn = QPushButton(QIcon(resource_path("icons/add_user.png")), 'Добавить пользователя')
         self.add_user_btn.clicked.connect(self.add_user)
 
-        self.edit_user_btn = QPushButton(QIcon('icons/edit_user.png'), 'Редактировать пользователя')
+        self.edit_user_btn = QPushButton(QIcon(resource_path("icons/edit_user.png")), 'Редактировать пользователя')
         self.edit_user_btn.clicked.connect(self.edit_user)
 
-        self.delete_user_btn = QPushButton(QIcon('icons/delete_user.png'), 'Удалить пользователя')
+        self.delete_user_btn = QPushButton(QIcon(resource_path("icons/delete_user.png")), 'Удалить пользователя')
         self.delete_user_btn.clicked.connect(self.delete_user)
 
         # Поиск
