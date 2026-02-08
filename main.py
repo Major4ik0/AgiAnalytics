@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -25,6 +26,7 @@ class LoginWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(QIcon('icon.ico'))
         self.setWindowTitle('Авторизация')
         self.setFixedSize(400, 300)
         self.init_ui()
@@ -607,6 +609,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, user_data):
         super().__init__()
+        self.setWindowIcon(QIcon('icon.ico'))
         self.user_data = user_data
         self.db = Database()
         self.init_ui()
