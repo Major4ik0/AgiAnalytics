@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import sys
-
-
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -479,9 +477,10 @@ class ImportDialog(QDialog):
         password = self.excel_password_input.text().strip()
         file_path = self.file_path
 
-        try:
-            temp_file = None
+        xls = None  # Объявляем переменную заранее
+        temp_file_path = None
 
+        try:
             # Если указан пароль, пробуем расшифровать
             if password:
                 try:
@@ -493,10 +492,11 @@ class ImportDialog(QDialog):
                         office_file.load_key(password=password)
 
                         temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        temp_file_path = temp_file.name
                         office_file.decrypt(temp_file)
                         temp_file.close()
 
-                        file_path = temp_file.name
+                        file_path = temp_file_path
 
                 except Exception as e:
                     QMessageBox.warning(self, 'Ошибка пароля',
@@ -549,9 +549,28 @@ class ImportDialog(QDialog):
                 QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки листов: {str(e)}')
 
             finally:
-                # Удаляем временный файл если был создан
-                if temp_file and os.path.exists(temp_file.name):
-                    os.unlink(temp_file.name)
+                # ВАЖНО: закрываем файл
+                if xls is not None:
+                    try:
+                        xls.close()
+                    except:
+                        pass
+
+                # Удаляем временный файл
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        import time
+                        time.sleep(0.1)  # Даем время системе освободить файл
+
+                        for attempt in range(3):
+                            try:
+                                os.unlink(temp_file_path)
+                                break
+                            except PermissionError:
+                                time.sleep(0.1)
+                                continue
+                    except Exception as e:
+                        print(f"Ошибка удаления временного файла в диалоге: {e}")
 
         except Exception as e:
             QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки файла: {str(e)}')
@@ -1213,39 +1232,37 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     progress.close()
                     QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
+                    import traceback
+                    traceback.print_exc()
 
         except Exception as e:
             QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
+            import traceback
+            traceback.print_exc()
 
-    def check_file_format(self, file_path):
-        """Проверка формата файла"""
+    @staticmethod
+    def check_file_access(file_path):
+        """Проверка доступности файла"""
         try:
-            import zipfile
-
-            # Пробуем открыть как zip (для .xlsx)
-            try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    return 'xlsx'
-            except zipfile.BadZipFile:
-
-                # Пробуем определить по магическим числам
-                with open(file_path, 'rb') as f:
-                    header = f.read(8)
-                    # Проверяем сигнатуры .xls
-                    if header[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1':
-                        return 'xls'
-                    else:
-                        return 'unknown'
-
-        except Exception as e:
-            print(f"Ошибка проверки формата файла: {e}")
-            return 'error'
+            import time
+            # Пробуем открыть файл несколько раз
+            for attempt in range(5):
+                try:
+                    with open(file_path, 'rb') as f:
+                        f.read(1)
+                    return True
+                except PermissionError:
+                    time.sleep(0.1)
+                    continue
+            return False
+        except Exception:
+            return False
 
     def import_excel_data(self, file_path, excel_password, selected_sheets):
         """Импорт данных из Excel файла"""
+        temp_file_path = None
         try:
             # Если указан пароль Excel, пробуем расшифровать
-            temp_file = None
             if excel_password:
                 try:
                     import msoffcrypto
@@ -1256,10 +1273,11 @@ class MainWindow(QMainWindow):
                         office_file.load_key(password=excel_password)
 
                         temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        temp_file_path = temp_file.name
                         office_file.decrypt(temp_file)
                         temp_file.close()
 
-                        file_path = temp_file.name
+                        file_path = temp_file_path
 
                 except Exception as e:
                     return False, f"Неверный пароль Excel файла или ошибка расшифровки: {str(e)}"
@@ -1336,9 +1354,9 @@ class MainWindow(QMainWindow):
                                     imported_count += 1
                                 except Exception as e:
                                     skipped_count += 1
+                                    print(f"Ошибка добавления абитуриента: {e}")
                             else:
                                 skipped_count += 1
-
 
                     except Exception as e:
                         error_msg = f"Ошибка импорта листа {sheet_name}: {e}"
@@ -1347,10 +1365,6 @@ class MainWindow(QMainWindow):
                         traceback.print_exc()
                         # Продолжаем с другими листами
                         continue
-
-                # Удаляем временный файл если был создан
-                if temp_file and os.path.exists(temp_file.name):
-                    os.unlink(temp_file.name)
 
                 result_message = f"""
                 Импорт завершен!
@@ -1363,13 +1377,37 @@ class MainWindow(QMainWindow):
                 return True, result_message
 
             except Exception as e:
-                if temp_file and os.path.exists(temp_file.name):
-                    os.unlink(temp_file.name)
                 error_msg = f"Ошибка чтения Excel файла: {str(e)}"
                 print(error_msg)
                 import traceback
                 traceback.print_exc()
                 return False, error_msg
+
+            finally:
+                # ЗАКРЫВАЕМ ExcelFile если он был открыт
+                if 'xls' in locals():
+                    xls.close()  # Явно закрываем файл
+
+                # Удаляем временный файл если он был создан
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        # Даем системе время освободить файл
+                        import time
+                        time.sleep(0.1)
+
+                        # Пробуем удалить файл несколько раз
+                        for attempt in range(3):
+                            try:
+                                os.unlink(temp_file_path)
+                                break
+                            except PermissionError:
+                                time.sleep(0.1)
+                                continue
+                            except Exception as e:
+                                print(f"Ошибка удаления временного файла: {e}")
+                                break
+                    except Exception as e:
+                        print(f"Ошибка при удалении временного файла: {e}")
 
         except Exception as e:
             error_msg = f"Общая ошибка импорта: {str(e)}"
@@ -1446,7 +1484,8 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
             return None
 
-    def _get_cell_value(self, row, possible_columns, default=''):
+    @staticmethod
+    def _get_cell_value(row, possible_columns, default=''):
         """Получение значения ячейки из возможных колонок"""
         for col in possible_columns:
             if col in row and pd.notna(row[col]):
@@ -1466,13 +1505,6 @@ class MainWindow(QMainWindow):
               applicant_data['course']))
         count = cursor.fetchone()[0]
         return count > 0
-
-    def _get_cell_value(self, row, possible_columns, default=''):
-        """Получение значения ячейки из возможных колонок"""
-        for col in possible_columns:
-            if col in row and pd.notna(row[col]):
-                return str(row[col]).strip()
-        return default
 
     def export_data(self):
         """Экспорт данных"""
