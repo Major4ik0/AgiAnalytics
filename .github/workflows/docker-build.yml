@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-win7-x64:
     name: Build Universal x64 (Win7/10/11)
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
@@ -101,7 +101,7 @@ jobs:
 
   build-win7-x86:
     name: Build Legacy x86 (Win7/10/11)
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
