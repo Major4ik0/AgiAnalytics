@@ -20,7 +20,7 @@ import os
 
 os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
-ICONS = ICONS = get_icon_path("icon.ico") or "icons/icon.ico"
+ICONS = get_icon_path("icon.ico") or "icons/icon.ico"
 
 
 class LoginWindow(QWidget):
@@ -54,11 +54,13 @@ class LoginWindow(QWidget):
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText('Введите логин')
         self.username_input.setMinimumHeight(40)
+        self.username_input.returnPressed.connect(self.authenticate)
 
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText('Введите пароль')
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setMinimumHeight(40)
+        self.password_input.returnPressed.connect(self.authenticate)
 
         form_layout.addRow('Логин:', self.username_input)
         form_layout.addRow('Пароль:', self.password_input)
@@ -77,6 +79,13 @@ class LoginWindow(QWidget):
         info_label.setStyleSheet('color: #666; font-style: italic;')
         layout.addWidget(info_label)
         self.setLayout(layout)
+
+    def keyPressEvent(self, event):
+        """Обработка нажатия клавиш"""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            self.authenticate()
+        else:
+            super().keyPressEvent(event)
 
     def authenticate(self):
         username = self.username_input.text().strip()
@@ -271,6 +280,236 @@ class ApplicantDialog(QDialog):
             'course': self.course.currentText(),
             # 'faculty': self.faculty.text().strip()
         }
+
+
+class SelectionStatsDialog(QDialog):
+    """Диалог со статистикой по выделенным строкам"""
+
+    def __init__(self, selected_data, parent=None):
+        super().__init__(parent)
+        self.selected_data = selected_data
+        self.setModal(False)  # Не модальный, чтобы можно было продолжать работу
+        self.setWindowTitle('Статистика по выделенным записям')
+        self.setFixedSize(500, 600)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Заголовок
+        title_label = QLabel(f"📊 Статистика по выделенным записям")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 15px;")
+        layout.addWidget(title_label)
+
+        # Информация о количестве
+        count_label = QLabel(f"Выделено записей: {len(self.selected_data)}")
+        count_label.setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 10px;")
+        layout.addWidget(count_label)
+
+        # Статистика
+        stats_group = QGroupBox("Статистика по выделенным записям")
+        stats_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+
+        stats_layout = QFormLayout()
+        stats_layout.setSpacing(12)
+
+        # Вычисляем статистику
+        stats = self.calculate_stats()
+
+        # Добавляем статистику
+        stats_layout.addRow("👥 Всего:", QLabel(str(stats['total'])))
+        stats_layout.addRow("✅ Поступают:", QLabel(f"{stats['applying']} ({stats['applying_percent']:.1f}%)"))
+        stats_layout.addRow("❌ Отказались:", QLabel(f"{stats['refused']} ({stats['refused_percent']:.1f}%)"))
+
+        # Разделитель
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        stats_layout.addRow(line)
+
+        stats_layout.addRow("👨 Мужчины:", QLabel(f"{stats['male']} ({stats['male_percent']:.1f}%)"))
+        stats_layout.addRow("👩 Женщины:", QLabel(f"{stats['female']} ({stats['female_percent']:.1f}%)"))
+        stats_layout.addRow("🎖️ Военнослужащие:", QLabel(f"{stats['military']} ({stats['military_percent']:.1f}%)"))
+
+        # Разделитель
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.HLine)
+        line2.setFrameShadow(QFrame.Shadow.Sunken)
+        stats_layout.addRow(line2)
+
+        stats_layout.addRow("📋 Формируется в военкомате:", QLabel(str(stats['doc1'])))
+        stats_layout.addRow("📤 Отправлено в ВА ВКО:", QLabel(str(stats['doc2'])))
+        stats_layout.addRow("📥 В ВА ВКО:", QLabel(str(stats['doc3'])))
+
+        # Статистика по курсам (если есть разные курсы)
+        if len(stats['courses']) > 1:
+            line3 = QFrame()
+            line3.setFrameShape(QFrame.Shape.HLine)
+            line3.setFrameShadow(QFrame.Shadow.Sunken)
+            stats_layout.addRow(line3)
+
+            courses_text = ", ".join([f"{k}: {v}" for k, v in stats['courses'].items()])
+            stats_layout.addRow("📚 По курсам:", QLabel(courses_text))
+
+        stats_group.setLayout(stats_layout)
+        layout.addWidget(stats_group)
+
+        # Кнопка копирования
+        copy_btn = QPushButton("📋 Копировать статистику")
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px;
+                font-weight: bold;
+                margin-top: 15px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        copy_btn.clicked.connect(self.copy_stats)
+        layout.addWidget(copy_btn)
+
+        # Кнопка закрытия
+        close_btn = QPushButton("Закрыть")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px;
+                margin-top: 5px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+        self.setLayout(layout)
+
+    def calculate_stats(self):
+        """Вычисление статистики по выделенным данным"""
+        stats = {
+            'total': len(self.selected_data),
+            'applying': 0,
+            'refused': 0,
+            'male': 0,
+            'female': 0,
+            'military': 0,
+            'doc1': 0,
+            'doc2': 0,
+            'doc3': 0,
+            'courses': {},
+            'applying_percent': 0,
+            'refused_percent': 0,
+            'male_percent': 0,
+            'female_percent': 0,
+            'military_percent': 0
+        }
+        for row_data in self.selected_data:
+            # Статус поступления
+            status = row_data.get('status', '')
+            if '1)поступает' in status or status == 'поступает':
+
+                stats['applying'] += 1
+            elif '2)не поступает' in status or status == 'не поступает':
+                stats['refused'] += 1
+
+            # Категория
+            category = row_data.get('category', '')
+            if category == 'муж':
+                stats['male'] += 1
+            elif category == 'жен':
+                stats['female'] += 1
+            elif category == 'в/сл':
+                stats['military'] += 1
+
+            # Статус документов
+            doc_status = row_data.get('document_status', '')
+            if 'Формируется' in doc_status:
+                stats['doc1'] += 1
+            elif 'Отправлено' in doc_status:
+                stats['doc2'] += 1
+            elif 'В ВА ВКО' in doc_status:
+                stats['doc3'] += 1
+
+            # Курс
+            course = row_data.get('course', '')
+            if course:
+                stats['courses'][course] = stats['courses'].get(course, 0) + 1
+
+        # Вычисляем проценты
+        total = stats['total']
+        if total > 0:
+            stats['applying_percent'] = (stats['applying'] / total) * 100
+            stats['refused_percent'] = (stats['refused'] / total) * 100
+            stats['male_percent'] = (stats['male'] / total) * 100
+            stats['female_percent'] = (stats['female'] / total) * 100
+            stats['military_percent'] = (stats['military'] / total) * 100
+
+        return stats
+
+    def copy_stats(self):
+        """Копирование статистики в буфер обмена"""
+        stats = self.calculate_stats()
+
+        clipboard_text = f"""
+📊 СТАТИСТИКА ПО ВЫДЕЛЕННЫМ ЗАПИСЯМ
+{'=' * 40}
+
+Выделено записей: {stats['total']}
+
+📈 СТАТУС ПОСТУПЛЕНИЯ:
+  • Поступают: {stats['applying']} ({stats['applying_percent']:.1f}%)
+  • Отказались: {stats['refused']} ({stats['refused_percent']:.1f}%)
+
+👥 КАТЕГОРИИ:
+  • Мужчины: {stats['male']} ({stats['male_percent']:.1f}%)
+  • Женщины: {stats['female']} ({stats['female_percent']:.1f}%)
+  • Военнослужащие: {stats['military']} ({stats['military_percent']:.1f}%)
+
+📄 СТАТУС ДОКУМЕНТОВ:
+  • Формируется в военкомате: {stats['doc1']}
+  • Отправлено в ВА ВКО: {stats['doc2']}
+  • В ВА ВКО: {stats['doc3']}
+
+📚 ПО КУРСАМ:
+"""
+        for course, count in stats['courses'].items():
+            percent = (count / stats['total']) * 100 if stats['total'] > 0 else 0
+            clipboard_text += f"  • {course}: {count} ({percent:.1f}%)\n"
+
+        clipboard_text += f"\n{'=' * 40}\n"
+        clipboard_text += f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+
+        QMessageBox.information(self, "Успех", "Статистика скопирована в буфер обмена!")
 
 
 class UserDialog(QDialog):
@@ -790,7 +1029,7 @@ class MainWindow(QMainWindow):
             self.close()
 
     def init_data_tab(self):
-        """Инициализация вкладки с данными"""
+        """Инициализация вкладки с данными (обновленная версия с панелью выделения)"""
         layout = QVBoxLayout()
 
         # Панель фильтров
@@ -822,10 +1061,11 @@ class MainWindow(QMainWindow):
         filter_widget.setLayout(filter_layout)
         layout.addWidget(filter_widget)
 
+        # Таблица
         self.table = QTableWidget()
         self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
-            "ID",'Уч. группа', 'Звание', 'ФИО студента',
+            "ID", 'Уч. группа', 'Звание', 'ФИО студента',
             'Регион', 'Город', 'Категория', 'ФИО абитуриента',
             'Телефон', 'Статус', 'Документы'
         ])
@@ -836,10 +1076,17 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
+        # Включаем возможность выделения нескольких строк
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+
+        # Подключаем сигнал изменения выделения
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+
         # Установка минимальных размеров для колонок
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
         # Особые настройки для определенных колонок
+        self.table.setColumnHidden(0, True)  # id
         self.table.setColumnWidth(2, 200)  # ФИО студента
         self.table.setColumnWidth(6, 200)  # ФИО абитуриента
         self.table.setColumnWidth(7, 120)  # Телефон
@@ -850,7 +1097,276 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.table)
 
+        # Панель статуса выделения
+        self.selection_status_widget = QWidget()
+        self.selection_status_widget.setStyleSheet("""
+            QWidget {
+                background-color: #e8f4fc;
+                border-radius: 6px;
+                margin-top: 5px;
+            }
+        """)
+        selection_layout = QHBoxLayout(self.selection_status_widget)
+        selection_layout.setContentsMargins(15, 10, 15, 10)
+
+        self.selection_info_label = QLabel("Выделено: 0 записей")
+        self.selection_info_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+
+        self.show_stats_btn = QPushButton("📊 Показать статистику по выделенным")
+        self.show_stats_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+        """)
+        self.show_stats_btn.clicked.connect(self.show_selection_stats)
+        self.show_stats_btn.setEnabled(False)
+
+        self.clear_selection_btn = QPushButton("✖️ Снять выделение")
+        self.clear_selection_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+        self.clear_selection_btn.clicked.connect(self.clear_selection)
+
+        selection_layout.addWidget(self.selection_info_label)
+        selection_layout.addStretch()
+        selection_layout.addWidget(self.show_stats_btn)
+        selection_layout.addWidget(self.clear_selection_btn)
+
+        layout.addWidget(self.selection_status_widget)
+
         self.data_tab.setLayout(layout)
+
+    def on_selection_changed(self):
+        """Обработка изменения выделения в таблице"""
+        selected_rows = set()
+        for item in self.table.selectedItems():
+            selected_rows.add(item.row())
+
+        count = len(selected_rows)
+        self.selection_info_label.setText(f"📌 Выделено: {count} записей")
+        self.show_stats_btn.setEnabled(count > 0)
+
+        # Обновляем статусную строку
+        if count > 0:
+            self.statusBar().showMessage(f"Выделено {count} записей. Нажмите 'Показать статистику' для анализа.")
+        else:
+            self.statusBar().showMessage(
+                f"Пользователь: {self.user_data['full_name']} | Роль: {self.user_data['role']}")
+
+    def clear_selection(self):
+        """Снять все выделения"""
+        self.table.clearSelection()
+        self.on_selection_changed()
+
+    def show_selection_stats(self):
+        """Показать статистику по выделенным строкам"""
+        selected_rows = set()
+        for item in self.table.selectedItems():
+            selected_rows.add(item.row())
+
+        if not selected_rows:
+            QMessageBox.warning(self, "Внимание", "Нет выделенных записей!")
+            return
+
+        # Собираем данные выделенных строк
+        selected_data = []
+        for row in selected_rows:
+            row_data = {}
+
+            # Получаем ID записи (первая колонка)
+            id_item = self.table.item(row, 0)
+            if id_item and id_item.text().strip():
+                try:
+                    row_data['id'] = int(id_item.text())
+                except ValueError:
+                    row_data['id'] = None
+            else:
+                row_data['id'] = None
+
+            # Получаем остальные данные
+            columns = ['study_group', 'rank', 'student_name', 'region', 'city',
+                       'category', 'applicant_name', 'phone', 'status', 'document_status']
+
+            # Фактические индексы колонок в таблице (пропускаем ID)
+            for i, col_name in enumerate(columns, start=1):
+                item = self.table.item(row, i)
+                if item and item.text().strip():
+                    row_data[col_name] = item.text()
+                else:
+                    row_data[col_name] = ''
+
+            # Добавляем курс (нужно получить из БД или из другой колонки)
+            # В текущей таблице нет курса, поэтому получаем из БД
+            if row_data.get('id'):
+                try:
+                    cursor = self.db.conn.cursor()
+                    cursor.execute('SELECT course FROM applicants WHERE id = ?', (row_data['id'],))
+                    result = cursor.fetchone()
+                    if result:
+                        row_data['course'] = result['course']
+                    else:
+                        row_data['course'] = ''
+                except Exception:
+                    row_data['course'] = ''
+            else:
+                row_data['course'] = ''
+
+            selected_data.append(row_data)
+
+        if not selected_data:
+            QMessageBox.warning(self, "Внимание", "Не удалось получить данные для выделенных записей!")
+            return
+
+        # Показываем диалог со статистикой
+        stats_dialog = SelectionStatsDialog(selected_data, self)
+        stats_dialog.show()
+
+    def refresh_data(self):
+        """Обновление данных в таблице (обновленная версия с сохранением выделения)"""
+        # Сохраняем выделенные ID перед обновлением
+        selected_ids = set()
+        for item in self.table.selectedItems():
+            row = item.row()
+            id_item = self.table.item(row, 0)
+            if id_item:
+                selected_ids.add(int(id_item.text()))
+
+        # Получение данных из БД
+        if self.user_data['role'] == 'admin':
+            if hasattr(self, 'course_filter') and self.course_filter.currentText() != 'Все курсы':
+                applicants = self.db.get_applicants(self.user_data['id'], 'admin', self.course_filter.currentText())
+            else:
+                applicants = self.db.get_applicants(self.user_data['id'], 'admin')
+        else:
+            applicants = self.db.get_applicants(self.user_data['id'], self.user_data['role'])
+
+        # Применение поиска
+        search_text = self.search_input.text().lower().strip()
+        if search_text:
+            filtered_applicants = []
+            for applicant in applicants:
+                applicant_dict = dict(applicant)
+                # Поиск по всем текстовым полям
+                text_fields = [
+                    str(applicant_dict.get('id', '')),
+                    str(applicant_dict.get('study_group', '')),
+                    str(applicant_dict.get('student_name', '')),
+                    str(applicant_dict.get('region', '')),
+                    str(applicant_dict.get('city', '')),
+                    str(applicant_dict.get('applicant_name', '')),
+                    str(applicant_dict.get('phone', '')),
+                    str(applicant_dict.get('course', '')),
+                ]
+                if any(search_text in field.lower() for field in text_fields):
+                    filtered_applicants.append(applicant)
+            applicants = filtered_applicants
+
+        # Отключаем сигналы на время обновления
+        self.table.blockSignals(True)
+
+        self.table.setRowCount(len(applicants))
+
+        # Словарь для сопоставления ID с новыми строками
+        id_to_row = {}
+
+        for row, applicant in enumerate(applicants):
+            applicant_dict = dict(applicant)
+            phone = applicant_dict.get('phone', '')
+            formatted_phone = self.format_phone_number(phone)
+
+            # Сохраняем ID для восстановления выделения
+            applicant_id = applicant_dict.get('id')
+            id_to_row[applicant_id] = row
+
+            # Создаем элементы для ячеек
+            items = [
+                QTableWidgetItem(str(applicant_id)),
+                QTableWidgetItem(applicant_dict.get('study_group', '')),
+                QTableWidgetItem(applicant_dict.get('rank', '')),
+                QTableWidgetItem(applicant_dict.get('student_name', '')),
+                QTableWidgetItem(applicant_dict.get('region', '')),
+                QTableWidgetItem(applicant_dict.get('city', '')),
+                QTableWidgetItem(applicant_dict.get('category', '')),
+                QTableWidgetItem(applicant_dict.get('applicant_name', '')),
+                QTableWidgetItem(formatted_phone),
+                QTableWidgetItem(applicant_dict.get('status', '')),
+                QTableWidgetItem(applicant_dict.get('document_status', '')),
+            ]
+
+            # Цвет для статуса (колонка 9 - индекс 9)
+            status = applicant_dict.get('status', '').strip()
+            if '1)поступает' == status:
+                status_item = items[9]
+                status_item.setBackground(QColor(230, 255, 230))
+                status_item.setForeground(QColor(0, 100, 0))
+            elif '2)не поступает' == status:
+                status_item = items[9]
+                status_item.setBackground(QColor(255, 230, 230))
+                status_item.setForeground(QColor(150, 0, 0))
+
+            # Цвет для пола (колонка 6 - индекс 6)
+            category = applicant_dict.get('category', '')
+            category_item = items[6]
+            if category == 'муж':
+                category_item.setBackground(QColor(230, 240, 255))
+            elif category == 'жен':
+                category_item.setBackground(QColor(255, 230, 240))
+            elif category == 'в/сл':
+                category_item.setBackground(QColor(230, 255, 230))
+
+            # Проверяем пустые поля и подсвечиваем их
+            column_names = [
+                'ID', 'Уч. группа', 'Звание', 'ФИО студента',
+                'Регион', 'Город', 'Категория',
+                'ФИО абитуриента', 'Телефон', 'Статус', 'Документы'
+            ]
+
+            for col in range(len(items)):
+                cell_text = items[col].text().strip()
+                if not cell_text:
+                    items[col].setBackground(QColor(255, 255, 200))
+                    if col == 7:  # ФИО абитуриента
+                        items[col].setToolTip(f"Пустое поле: {column_names[col]}")
+
+            # Добавляем элементы в таблицу
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table.setItem(row, col, item)
+
+        # Восстанавливаем выделение
+        for applicant_id in selected_ids:
+            if applicant_id in id_to_row:
+                row = id_to_row[applicant_id]
+                self.table.selectRow(row)
+
+        self.table.resizeColumnsToContents()
+
+        # Включаем сигналы обратно
+        self.table.blockSignals(False)
+
+        # Обновляем информацию о выделении
+        self.on_selection_changed()
 
     def init_settings_tab(self):
         """Инициализация вкладки настроек (только для админа)"""
@@ -908,9 +1424,9 @@ class MainWindow(QMainWindow):
 
         # Таблица пользователей
         self.users_table = QTableWidget()
-        self.users_table.setColumnCount(5)
+        self.users_table.setColumnCount(4)
         self.users_table.setHorizontalHeaderLabels([
-            'ID', 'Логин', 'ФИО', 'Роль', 'Курс',
+            'Логин', 'ФИО', 'Роль', 'Курс',
         ])
 
         # Настройка таблица
@@ -985,7 +1501,7 @@ class MainWindow(QMainWindow):
         self.permissions_table = QTableWidget()
         self.permissions_table.setColumnCount(4)
         self.permissions_table.setHorizontalHeaderLabels([
-            'ID', 'Пользователь', 'Тип права', 'Курс'
+            'Пользователь', 'Тип права', 'Курс'
         ])
 
         # Настройка таблицы
@@ -1034,7 +1550,6 @@ class MainWindow(QMainWindow):
             user_dict = dict(user)
 
             items = [
-                QTableWidgetItem(str(user_dict.get('id', ''))),
                 QTableWidgetItem(user_dict.get('username', '')),
                 QTableWidgetItem(user_dict.get('full_name', '')),
                 QTableWidgetItem(user_dict.get('role', '')),
@@ -1065,7 +1580,6 @@ class MainWindow(QMainWindow):
             perm_dict = dict(permission)
 
             items = [
-                QTableWidgetItem(str(perm_dict.get('id', ''))),
                 QTableWidgetItem(f"{perm_dict.get('full_name', '')}"),
                 QTableWidgetItem(perm_dict.get('permission_type', '')),
                 QTableWidgetItem(perm_dict.get('course', '')),
@@ -1077,117 +1591,6 @@ class MainWindow(QMainWindow):
                 self.permissions_table.setItem(row, col, item)
 
         self.permissions_table.resizeColumnsToContents()
-
-    def refresh_data(self):
-        """Обновление данных в таблице"""
-        # Получение данных из БД
-        if self.user_data['role'] == 'admin':
-            if hasattr(self, 'course_filter') and self.course_filter.currentText() != 'Все курсы':
-                applicants = self.db.get_applicants(self.user_data['id'], 'admin', self.course_filter.currentText())
-            else:
-                applicants = self.db.get_applicants(self.user_data['id'], 'admin')
-        else:
-            applicants = self.db.get_applicants(self.user_data['id'], self.user_data['role'])
-
-        # Применение поиска
-        search_text = self.search_input.text().lower().strip()
-        if search_text:
-            filtered_applicants = []
-            for applicant in applicants:
-                applicant_dict = dict(applicant)
-                # Поиск по всем текстовым полям
-                text_fields = [
-                    str(applicant_dict.get('study_group', '')),
-                    str(applicant_dict.get('student_name', '')),
-                    str(applicant_dict.get('region', '')),
-                    str(applicant_dict.get('city', '')),
-                    str(applicant_dict.get('applicant_name', '')),
-                    str(applicant_dict.get('phone', '')),
-                    str(applicant_dict.get('course', '')),
-                ]
-                if any(search_text in field.lower() for field in text_fields):
-                    filtered_applicants.append(applicant)
-            applicants = filtered_applicants
-
-        self.table.setRowCount(len(applicants))
-
-        for row, applicant in enumerate(applicants):
-            applicant_dict = dict(applicant)
-            phone = applicant_dict.get('phone', '')
-            formatted_phone = self.format_phone_number(phone)
-            # Создаем элементы для ячеек
-            items = [
-                QTableWidgetItem(str(applicant_dict.get('id', ''))),
-                QTableWidgetItem(applicant_dict.get('study_group', '')),
-                QTableWidgetItem(applicant_dict.get('rank', '')),
-                QTableWidgetItem(applicant_dict.get('student_name', '')),
-                QTableWidgetItem(applicant_dict.get('region', '')),
-                QTableWidgetItem(applicant_dict.get('city', '')),
-                QTableWidgetItem(applicant_dict.get('category', '')),
-                QTableWidgetItem(applicant_dict.get('applicant_name', '')),
-                QTableWidgetItem(formatted_phone),
-                QTableWidgetItem(applicant_dict.get('status', '')),
-                QTableWidgetItem(applicant_dict.get('document_status', '')),
-            ]
-
-            # Цвет для статуса (колонка 9 - индекс 9)
-            status = applicant_dict.get('status', '').strip()
-            if '1)поступает' == status:
-                # Зеленый для поступающих
-                status_item = items[9]
-                status_item.setBackground(QColor(230, 255, 230))  # Светло-зеленый фон
-                status_item.setForeground(QColor(0, 100, 0))  # Темно-зеленый текст
-            elif '2)не поступает' == status:
-                # Красный для отказавшихся
-                status_item = items[9]
-                status_item.setBackground(QColor(255, 230, 230))  # Светло-красный фон
-                status_item.setForeground(QColor(150, 0, 0))  # Темно-красный текст
-
-            # Цвет для пола (колонка 6 - индекс 6)
-            category = applicant_dict.get('category', '')
-            category_item = items[6]
-            if category == 'муж':
-                category_item.setBackground(QColor(230, 240, 255))  # Очень светло-голубой
-            elif category == 'жен':
-                category_item.setBackground(QColor(255, 230, 240))  # Очень светло-розовый
-            elif category == 'в/сл':
-                category_item.setBackground(QColor(230, 255, 230))  # Светло-зеленый
-
-            # Проверяем пустые поля и подсвечиваем их
-            empty_fields = []
-            column_names = [
-                'ID', 'Уч. группа', 'Звание', 'ФИО студента',
-                'Регион', 'Город', 'Категория',
-                'ФИО абитуриента', 'Телефон', 'Статус', 'Документы'
-            ]
-
-            for col in range(len(items)):
-                cell_text = items[col].text().strip()
-                if not cell_text:
-                    # Подсвечиваем пустые поля желтым цветом
-                    items[col].setBackground(QColor(255, 255, 200))  # Светло-желтый
-                    empty_fields.append(column_names[col])
-
-            # Если в строке есть пустые поля, делаем ФИО абитуриента жирным
-            if empty_fields:
-                items[7].setFont(QFont("Arial", 9, QFont.Weight.Bold))
-
-            # Добавляем tooltip для пустых полей
-            if empty_fields:
-                items[7].setToolTip(f"Пустые поля: {', '.join(empty_fields)}")
-
-            # Специальная подсветка для важных полей
-            important_fields = [3, 7, 8]  # ФИО студента, ФИО абитуриента, Телефон
-            for col in important_fields:
-                if not items[col].text().strip():
-                    items[col].setBackground(QColor(255, 220, 220))  # Более заметный розовый
-
-            # Добавляем элементы в таблицу
-            for col, item in enumerate(items):
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table.setItem(row, col, item)
-
-        self.table.resizeColumnsToContents()
 
     def add_user(self):
         """Добавление нового пользователя"""
