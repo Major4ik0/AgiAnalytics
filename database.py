@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sqlite3
 import pandas as pd
+from datetime import datetime
 
 
 class Database:
@@ -26,47 +27,115 @@ class Database:
                 password TEXT NOT NULL,
                 full_name TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'user',
-                course TEXT,
-                faculty TEXT,
+                department_id INTEGER,
+                position TEXT,
+                rank TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Таблица абитуриентов
+        # Таблица подразделений (кафедры, факультеты)
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS applicants (
+            CREATE TABLE IF NOT EXISTS departments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_by INTEGER,
-                study_group TEXT,
-                rank TEXT,
-                student_name TEXT,
-                region TEXT,
-                city TEXT,
-                category TEXT,
-                applicant_name TEXT,
-                phone TEXT,
-                status TEXT,
-                document_status TEXT,
-                notes TEXT,
-                course TEXT,
-                faculty TEXT,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                type TEXT DEFAULT 'department',
+                head_user_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (created_by) REFERENCES users (id)
+                FOREIGN KEY (parent_id) REFERENCES departments(id),
+                FOREIGN KEY (head_user_id) REFERENCES users(id)
             )
         ''')
 
-        # Таблица прав доступа
+        # Таблица вариантов образования
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS permissions (
+            CREATE TABLE IF NOT EXISTS education_types (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                permission_type TEXT NOT NULL,  -- 'all', 'faculty', 'course'
-                faculty TEXT,
-                course TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
+                name TEXT UNIQUE NOT NULL,
+                sort_order INTEGER DEFAULT 0
             )
         ''')
+
+        # Таблица статусов документов
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS document_statuses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                sort_order INTEGER DEFAULT 0
+            )
+        ''')
+
+        # Таблица планов по подразделениям
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                department_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                plan_m INTEGER DEFAULT 0,
+                plan_f INTEGER DEFAULT 0,
+                plan_military INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (department_id) REFERENCES departments(id),
+                UNIQUE(department_id, year)
+            )
+        ''')
+
+        # Таблица прав доступа пользователей к подразделениям
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_department_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                department_id INTEGER NOT NULL,
+                can_view BOOLEAN DEFAULT 1,
+                can_edit_plan BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (department_id) REFERENCES departments(id),
+                UNIQUE(user_id, department_id)
+            )
+        ''')
+
+        # Основная таблица абитуриентов (обновленная структура)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS applicants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- Поля абитуриента
+                applicant_name TEXT NOT NULL,
+                region TEXT,
+                city TEXT,
+                category TEXT CHECK(category IN ('м', 'ж', 'всл')),
+                phone TEXT,
+                education TEXT,
+                status TEXT CHECK(status IN ('поступает', 'отказывается')),
+                document_status TEXT,
+
+                -- Поля агитатора
+                agitator_department TEXT,
+                agitator_name TEXT,
+                agitator_course TEXT,
+                agitator_group TEXT,
+                agitator_rank TEXT,
+                agitator_is_cadet BOOLEAN DEFAULT 0,
+
+                -- Служебные поля
+                created_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )
+        ''')
+
+        # Добавляем начальные данные
+        self.init_default_data()
+
+        self.conn.commit()
+
+    def init_default_data(self):
+        """Инициализация начальных данных"""
+        cursor = self.conn.cursor()
 
         # Добавляем администратора по умолчанию
         cursor.execute('SELECT * FROM users WHERE username = ?', ('admin',))
@@ -75,8 +144,377 @@ class Database:
                 'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
                 ('admin', 'admin', 'Администратор системы', 'admin')
             )
+            admin_id = cursor.lastrowid
 
+            # Создаем главное подразделение для админа
+            cursor.execute(
+                'INSERT INTO departments (name, type, head_user_id) VALUES (?, ?, ?)',
+                ('Все подразделения', 'root', admin_id)
+            )
+
+        # Добавляем варианты образования
+        education_defaults = ['СОШ', 'СПО', 'СВУ', 'ПКУ', 'КК']
+        for i, edu in enumerate(education_defaults):
+            cursor.execute(
+                'INSERT OR IGNORE INTO education_types (name, sort_order) VALUES (?, ?)',
+                (edu, i)
+            )
+
+        # Добавляем статусы документов
+        document_defaults = ['ВК', 'ОК', 'ВА ВКО']
+        for i, doc in enumerate(document_defaults):
+            cursor.execute(
+                'INSERT OR IGNORE INTO document_statuses (name, sort_order) VALUES (?, ?)',
+                (doc, i)
+            )
+
+        # Добавляем примерные подразделения
+        departments = [
+            ('Факультет 1', 'faculty'),
+            ('Факультет 2', 'faculty'),
+            ('Кафедра 1', 'department'),
+            ('Кафедра 2', 'department'),
+        ]
+        for name, dept_type in departments:
+            cursor.execute(
+                'INSERT OR IGNORE INTO departments (name, type) VALUES (?, ?)',
+                (name, dept_type)
+            )
+
+    # ==================== РАБОТА С АБИТУРИЕНТАМИ ====================
+
+    def add_applicant(self, user_id, data):
+        """Добавление абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO applicants (
+                applicant_name, region, city, category, phone, education,
+                status, document_status, agitator_department, agitator_name,
+                agitator_course, agitator_group, agitator_rank, agitator_is_cadet,
+                created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('applicant_name', ''),
+            data.get('region', ''),
+            data.get('city', ''),
+            data.get('category', ''),
+            data.get('phone', ''),
+            data.get('education', ''),
+            data.get('status', 'поступает'),
+            data.get('document_status', ''),
+            data.get('agitator_department', ''),
+            data.get('agitator_name', ''),
+            data.get('agitator_course', ''),
+            data.get('agitator_group', ''),
+            data.get('agitator_rank', ''),
+            1 if data.get('agitator_is_cadet') else 0,
+            user_id
+        ))
         self.conn.commit()
+        return cursor.lastrowid
+
+    def get_applicants(self, user_id=None, role=None, department=None, filters=None):
+        """Получение списка абитуриентов с учетом прав доступа и фильтров"""
+        cursor = self.conn.cursor()
+
+        query = '''
+            SELECT 
+                a.id,
+                a.applicant_name,
+                a.region,
+                a.city,
+                a.category,
+                a.phone,
+                a.education,
+                a.status,
+                a.document_status,
+                a.agitator_department,
+                a.agitator_name,
+                a.agitator_course,
+                a.agitator_group,
+                a.agitator_rank,
+                a.agitator_is_cadet,
+                a.created_at
+            FROM applicants a
+            WHERE 1=1
+        '''
+        params = []
+
+        if role == 'admin':
+            # Админ видит всех
+            pass
+        else:
+            # Обычный пользователь видит только своих абитуриентов
+            query += ' AND a.created_by = ?'
+            params.append(user_id)
+
+        # Фильтр по подразделению
+        if department and department != 'Все курсы' and department != 'Все подразделения':
+            query += ' AND a.agitator_course = ?'
+            params.append(department)
+
+        # Расширенные фильтры
+        if filters:
+            if filters.get('applicant_name'):
+                query += ' AND a.applicant_name LIKE ?'
+                params.append(f"%{filters['applicant_name']}%")
+
+            if filters.get('region'):
+                query += ' AND a.region LIKE ?'
+                params.append(f"%{filters['region']}%")
+
+            if filters.get('city'):
+                query += ' AND a.city LIKE ?'
+                params.append(f"%{filters['city']}%")
+
+            if filters.get('category'):
+                query += ' AND a.category = ?'
+                params.append(filters['category'])
+
+            if filters.get('education'):
+                placeholders = ','.join(['?'] * len(filters['education']))
+                query += f' AND a.education IN ({placeholders})'
+                params.extend(filters['education'])
+
+            if filters.get('status'):
+                query += ' AND a.status = ?'
+                params.append(filters['status'])
+
+            if filters.get('agitator_name'):
+                query += ' AND a.agitator_name LIKE ?'
+                params.append(f"%{filters['agitator_name']}%")
+
+            if filters.get('agitator_department'):
+                query += ' AND a.agitator_department = ?'
+                params.append(filters['agitator_department'])
+
+            if 'agitator_is_cadet' in filters:
+                query += ' AND a.agitator_is_cadet = ?'
+                params.append(1 if filters['agitator_is_cadet'] else 0)
+
+            if filters.get('document_status'):
+                query += ' AND a.document_status = ?'
+                params.append(filters['document_status'])
+
+            if filters.get('agitator_course'):
+                query += ' AND a.agitator_course = ?'
+                params.append(filters['agitator_course'])
+
+            if filters.get('agitator_group'):
+                query += ' AND a.agitator_group LIKE ?'
+                params.append(f"%{filters['agitator_group']}%")
+
+        query += ' ORDER BY a.id DESC'
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
+    def update_applicant(self, applicant_id, data):
+        """Обновление данных абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE applicants SET
+                applicant_name = ?, region = ?, city = ?, category = ?,
+                phone = ?, education = ?, status = ?, document_status = ?,
+                agitator_department = ?, agitator_name = ?, agitator_course = ?,
+                agitator_group = ?, agitator_rank = ?, agitator_is_cadet = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('applicant_name', ''),
+            data.get('region', ''),
+            data.get('city', ''),
+            data.get('category', ''),
+            data.get('phone', ''),
+            data.get('education', ''),
+            data.get('status', 'поступает'),
+            data.get('document_status', ''),
+            data.get('agitator_department', ''),
+            data.get('agitator_name', ''),
+            data.get('agitator_course', ''),
+            data.get('agitator_group', ''),
+            data.get('agitator_rank', ''),
+            1 if data.get('agitator_is_cadet') else 0,
+            applicant_id
+        ))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def delete_applicant(self, applicant_id):
+        """Удаление абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM applicants WHERE id = ?', (applicant_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    # ==================== РАБОТА СО СПРАВОЧНИКАМИ ====================
+
+    def get_education_types(self):
+        """Получение списка типов образования"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT name FROM education_types ORDER BY sort_order')
+        return [row['name'] for row in cursor.fetchall()]
+
+    def add_education_type(self, name):
+        """Добавление типа образования"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('INSERT INTO education_types (name) VALUES (?)', (name,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_education_type(self, name):
+        """Удаление типа образования"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM education_types WHERE name = ?', (name,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_document_statuses(self):
+        """Получение списка статусов документов"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT name FROM document_statuses ORDER BY sort_order')
+        return [row['name'] for row in cursor.fetchall()]
+
+    def add_document_status(self, name):
+        """Добавление статуса документов"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('INSERT INTO document_statuses (name) VALUES (?)', (name,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_document_status(self, name):
+        """Удаление статуса документов"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM document_statuses WHERE name = ?', (name,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_departments(self):
+        """Получение списка подразделений"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id, name, type FROM departments WHERE type != "root" ORDER BY name')
+        return cursor.fetchall()
+
+    def add_department(self, name, dept_type='department', parent_id=None):
+        """Добавление подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'INSERT INTO departments (name, type, parent_id) VALUES (?, ?, ?)',
+            (name, dept_type, parent_id)
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def delete_department(self, dept_id):
+        """Удаление подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM departments WHERE id = ?', (dept_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    # ==================== ПЛАНЫ ====================
+
+    def get_plan(self, department_id, year):
+        """Получение плана для подразделения на год"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT plan_m, plan_f, plan_military 
+            FROM plans 
+            WHERE department_id = ? AND year = ?
+        ''', (department_id, year))
+        result = cursor.fetchone()
+        if result:
+            return dict(result)
+        return {'plan_m': 0, 'plan_f': 0, 'plan_military': 0}
+
+    def set_plan(self, department_id, year, plan_m, plan_f, plan_military):
+        """Установка плана для подразделения на год"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO plans (department_id, year, plan_m, plan_f, plan_military, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(department_id, year) DO UPDATE SET
+                plan_m = excluded.plan_m,
+                plan_f = excluded.plan_f,
+                plan_military = excluded.plan_military,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (department_id, year, plan_m, plan_f, plan_military))
+        self.conn.commit()
+        return True
+
+    # ==================== ПРАВА ДОСТУПА ====================
+
+    def get_user_department_permissions(self, user_id):
+        """Получение прав пользователя на подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT p.*, d.name as department_name
+            FROM user_department_permissions p
+            JOIN departments d ON d.id = p.department_id
+            WHERE p.user_id = ?
+        ''', (user_id,))
+        return cursor.fetchall()
+
+    def add_user_department_permission(self, user_id, department_id, can_view=True, can_edit_plan=False):
+        """Добавление права на подразделение"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO user_department_permissions (user_id, department_id, can_view, can_edit_plan)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, department_id, can_view, can_edit_plan))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    # ==================== СТАТИСТИКА ====================
+
+    def get_statistics_by_department(self, department_name=None):
+        """Получение статистики по подразделению"""
+        cursor = self.conn.cursor()
+
+        query = '''
+            SELECT 
+                COUNT(CASE WHEN category = 'м' THEN 1 END) as male_count,
+                COUNT(CASE WHEN category = 'ж' THEN 1 END) as female_count,
+                COUNT(CASE WHEN category = 'всл' THEN 1 END) as military_count,
+                COUNT(CASE WHEN status = 'поступает' AND document_status = 'ВК' THEN 1 END) as applying_vk,
+                COUNT(CASE WHEN status = 'поступает' AND document_status = 'ОК' THEN 1 END) as applying_ok,
+                COUNT(CASE WHEN status = 'поступает' AND document_status = 'ВА ВКО' THEN 1 END) as applying_vavko,
+                COUNT(CASE WHEN status = 'отказывается' THEN 1 END) as refused,
+                COUNT(*) as total
+            FROM applicants
+            WHERE 1=1
+        '''
+        params = []
+
+        if department_name and department_name != 'Все подразделения':
+            query += ' AND agitator_department = ?'
+            params.append(department_name)
+
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+
+        if result:
+            return dict(result)
+        return {
+            'male_count': 0,
+            'female_count': 0,
+            'military_count': 0,
+            'applying_vk': 0,
+            'applying_ok': 0,
+            'applying_vavko': 0,
+            'refused': 0,
+            'total': 0
+        }
+
+    # ==================== ПОЛЬЗОВАТЕЛИ ====================
 
     def get_user_by_credentials(self, username, password):
         """Получение пользователя по логину и паролю"""
@@ -87,27 +525,31 @@ class Database:
         )
         return cursor.fetchone()
 
-    def get_all_users(self):
-        """Получение всех пользователей"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM users ORDER BY id DESC')
-        return cursor.fetchall()
-
     def get_user_by_id(self, user_id):
         """Получение пользователя по ID"""
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
         return cursor.fetchone()
 
-    def add_user(self, username, password, full_name, role='user', course=None, faculty=None):
+    def get_all_users(self):
+        """Получение всех пользователей"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT u.*, d.name as department_name 
+            FROM users u
+            LEFT JOIN departments d ON d.id = u.department_id
+            ORDER BY u.id DESC
+        ''')
+        return cursor.fetchall()
+
+    def add_user(self, username, password, full_name, role='user', department_id=None, position=None, rank=None):
         """Добавление нового пользователя"""
         cursor = self.conn.cursor()
         try:
-            cursor.execute(
-                '''INSERT INTO users (username, password, full_name, role, course, faculty) 
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (username, password, full_name, role, course, faculty)
-            )
+            cursor.execute('''
+                INSERT INTO users (username, password, full_name, role, department_id, position, rank) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (username, password, full_name, role, department_id, position, rank))
             self.conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError as e:
@@ -121,11 +563,12 @@ class Database:
             cursor.execute('''
                 UPDATE users SET
                     username = ?, password = ?, full_name = ?, 
-                    role = ?, course = ?, faculty = ?
+                    role = ?, department_id = ?, position = ?, rank = ?
                 WHERE id = ?
             ''', (
                 data['username'], data['password'], data['full_name'],
-                data['role'], data.get('course'), data.get('faculty'), user_id
+                data['role'], data.get('department_id'), data.get('position'), data.get('rank'),
+                user_id
             ))
             self.conn.commit()
             return cursor.rowcount > 0
@@ -137,9 +580,7 @@ class Database:
         """Удаление пользователя"""
         cursor = self.conn.cursor()
         try:
-            # Сначала удаляем права пользователя
-            cursor.execute('DELETE FROM permissions WHERE user_id = ?', (user_id,))
-            # Затем удаляем пользователя
+            cursor.execute('DELETE FROM user_department_permissions WHERE user_id = ?', (user_id,))
             cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
             self.conn.commit()
             return cursor.rowcount > 0
@@ -147,557 +588,91 @@ class Database:
             print(f"Ошибка удаления пользователя: {e}")
             return False
 
-    def add_applicant(self, user_id, data):
-        """Добавление абитуриента"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO applicants (
-                created_by, study_group, rank, student_name, region, city,
-                category, applicant_name, phone, status, document_status, 
-                notes, course, faculty
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            user_id, data['study_group'], data['rank'], data['student_name'],
-            data['region'], data['city'], data['category'], data['applicant_name'],
-            data['phone'], data['status'], data['document_status'],
-            data.get('notes', ''), data.get('course', ''), data.get('faculty', '')
-        ))
-        self.conn.commit()
-        return cursor.lastrowid
-
-    def get_applicants(self, user_id=None, role=None, course=None, faculty=None):
-        """Получение списка абитуриентов с учетом прав доступа"""
-        cursor = self.conn.cursor()
-
-        if role == 'admin':
-            # Админ видит всех
-            query = 'SELECT * FROM applicants WHERE 1=1'
-            params = []
-
-            if course and course != 'Все курсы':
-                query += ' AND course = ?'
-                params.append(course)
-
-            query += ' ORDER BY id DESC'
-            cursor.execute(query, params)
-        else:
-            # Обычный пользователь видит только своих абитуриентов
-            query = 'SELECT * FROM applicants WHERE created_by = ?'
-            params = [user_id]
-
-            # Проверяем права доступа пользователя
-            permissions = self.get_user_permissions(user_id)
-
-            # Если есть права на все или на определенные курсы
-            if any(p['permission_type'] == 'all' for p in permissions):
-                # Видит всех
-                query = 'SELECT * FROM applicants WHERE 1=1'
-                params = []
-            elif any(p['permission_type'] == 'course' for p in permissions):
-                # Видит определенные курсы
-                course_permissions = [p['course'] for p in permissions if p['permission_type'] == 'course']
-                if course_permissions:
-                    placeholders = ','.join(['?'] * len(course_permissions))
-                    query = f'SELECT * FROM applicants WHERE course IN ({placeholders}) OR created_by = ?'
-                    params = course_permissions + [user_id]
-
-            query += ' ORDER BY id DESC'
-            cursor.execute(query, params)
-
-        return cursor.fetchall()
-
-    def import_from_excel(self, file_path, user_id, password=None, selected_sheets=None):
-        """Импорт данных из Excel файла с паролем и выбором листов"""
-        try:
-            # Проверка пароля (если предоставлен)
-            if password:
-                cursor = self.conn.cursor()
-                cursor.execute('SELECT password FROM users WHERE id = ?', (user_id,))
-                user_record = cursor.fetchone()
-
-                if not user_record or user_record['password'] != password:
-                    return False, "Неверный пароль"
-
-            # Чтение всех листов
-            try:
-                # Пробуем разные движки для чтения Excel
-                try:
-                    xls = pd.ExcelFile(file_path, engine='openpyxl')
-                except:
-                    try:
-                        xls = pd.ExcelFile(file_path, engine='xlrd')
-                    except:
-                        xls = pd.ExcelFile(file_path)  # Пусть pandas сам выберет движок
-
-                imported_count = 0
-                duplicate_count = 0
-                skipped_count = 0
-                available_sheets = xls.sheet_names
-
-                # Если не указаны листы для импорта, используем все листы с "курс"
-                if not selected_sheets:
-                    selected_sheets = [sheet for sheet in available_sheets if 'курс' in sheet.lower()]
-                else:
-                    # Фильтруем только те листы, которые есть в файле
-                    selected_sheets = [sheet for sheet in selected_sheets if sheet in available_sheets]
-
-                if not selected_sheets:
-                    return False, "Нет подходящих листов для импорта. Ожидаются листы с названиями, содержащими 'курс'"
-
-                for sheet_name in selected_sheets:
-                    try:
-                        # Читаем лист
-                        df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
-
-                        # Определяем курс из названия листа
-                        course_from_sheet = '1 курс'  # по умолчанию
-                        for course_num in ['1', '2', '3', '4', '5']:
-                            if f'{course_num} курс' in sheet_name.lower():
-                                course_from_sheet = f'{course_num} курс'
-                                break
-                            elif f'курс {course_num}' in sheet_name.lower():
-                                course_from_sheet = f'{course_num} курс'
-                                break
-
-                        # Преобразование данных
-                        for index, row in df.iterrows():
-                            try:
-                                # Пропускаем пустые строки
-                                if row.isnull().all():
-                                    continue
-
-                                # Ищем ФИО абитуриента
-                                applicant_name = ''
-                                for col in df.columns:
-                                    col_str = str(col)
-                                    if 'абитуриент' in col_str.lower() and pd.notna(row[col]):
-                                        applicant_name = str(row[col])
-                                        break
-
-                                if not applicant_name.strip():
-                                    skipped_count += 1
-                                    continue
-
-                                # Собираем данные
-                                applicant_data = {
-                                    'study_group': self._get_value_from_row(row, df,
-                                                                            ['уч.гр.', 'Уч. группа', 'учебная группа']),
-                                    'rank': self._get_value_from_row(row, df, ['В.зв', 'Звание', 'воинское звание'],
-                                                                     'ряд.'),
-                                    'student_name': self._get_value_from_row(row, df,
-                                                                             ['ФИО', 'ФИО студента', 'Студент']),
-                                    'region': self._get_value_from_row(row, df, ['Субъект РФ', 'Регион', 'область']),
-                                    'city': self._get_value_from_row(row, df, ['Населённый пункт', 'Город', 'город']),
-                                    'category': self._get_value_from_row(row, df, ['категория', 'Категория', 'пол'],
-                                                                         'муж'),
-                                    'applicant_name': applicant_name,
-                                    'phone': self._get_value_from_row(row, df,
-                                                                      ['Телефон', 'телефон', 'контактный телефон']),
-                                    'status': self._get_value_from_row(row, df,
-                                                                       ['Статус', 'статус', 'Статус поступления'],
-                                                                       '1)поступает'),
-                                    'document_status': self._get_value_from_row(row, df,
-                                                                                ['Состояние личного дела на поступление',
-                                                                                 'Документы', 'документы']),
-                                    'notes': self._get_value_from_row(row, df,
-                                                                      ['Примечание', 'примечание', 'комментарий']),
-                                    'course': course_from_sheet,
-                                    'faculty': self._get_value_from_row(row, df, ['Факультет', 'факультет',
-                                                                                  'Факультет/отделение'])
-                                }
-
-                                # Проверка на дубликат
-                                if self.check_duplicate_applicant(user_id, applicant_data):
-                                    duplicate_count += 1
-                                    continue
-
-                                self.add_applicant(user_id, applicant_data)
-                                imported_count += 1
-
-                            except Exception as e:
-                                print(f"Ошибка в строке {index + 2} листа {sheet_name}: {e}")
-                                skipped_count += 1
-                                continue
-
-                    except Exception as e:
-                        print(f"Ошибка импорта листа {sheet_name}: {e}")
-                        continue
-
-                result_message = f"""
-                Импорт завершен!
-                Всего импортировано: {imported_count}
-                Пропущено дубликатов: {duplicate_count}
-                Пропущено других ошибок: {skipped_count}
-                Листы: {', '.join(selected_sheets)}
-                """
-
-                return True, result_message
-
-            except Exception as e:
-                return False, f"Ошибка чтения файла Excel: {str(e)}"
-
-        except Exception as e:
-            print(f"Общая ошибка импорта: {e}")
-            return False, f"Ошибка импорта: {str(e)}"
-
-    def check_duplicate_applicant(self, user_id, applicant_data):
-        """Проверка на дубликат абитуриента"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*) FROM applicants 
-            WHERE created_by = ? 
-            AND applicant_name = ?
-            AND phone = ?
-            AND course = ?
-        ''', (user_id, applicant_data['applicant_name'],
-              applicant_data['phone'], applicant_data['course']))
-        count = cursor.fetchone()[0]
-        return count > 0
-
-    def _get_value_from_row(self, row, df, possible_columns, default=''):
-        """Получение значения из строки по возможным названиям колонок"""
-        for col in possible_columns:
-            if col in df.columns:
-                value = row[col]
-                if pd.notna(value):
-                    return str(value).strip()
-
-        # Если не нашли в точных совпадениях, ищем частичные
-        for df_col in df.columns:
-            df_col_str = str(df_col)
-            for possible in possible_columns:
-                if possible.lower() in df_col_str.lower():
-                    value = row[df_col]
-                    if pd.notna(value):
-                        return str(value).strip()
-
-        return default
-
-    def update_applicant(self, applicant_id, data):
-        """Обновление данных абитуриента"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE applicants SET
-                study_group = ?, rank = ?, student_name = ?, region = ?,
-                city = ?, category = ?, applicant_name = ?, phone = ?,
-                status = ?, document_status = ?, notes = ?, course = ?, faculty = ?
-            WHERE id = ?
-        ''', (
-            data['study_group'], data['rank'], data['student_name'],
-            data['region'], data['city'], data['category'], data['applicant_name'],
-            data['phone'], data['status'], data['document_status'],
-            data.get('notes', ''), data.get('course', ''), data.get('faculty', ''), applicant_id
-        ))
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def delete_applicant(self, applicant_id):
-        """Удаление абитуриента"""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM applicants WHERE id = ?', (applicant_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    # Методы для работы с правами доступа
-    def get_user_permissions(self, user_id):
-        """Получение прав доступа пользователя"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT p.*, u.username, u.full_name 
-            FROM permissions p
-            LEFT JOIN users u ON u.id = p.user_id
-            WHERE p.user_id = ? 
-            ORDER BY p.id DESC
-        ''', (user_id,))
-        return cursor.fetchall()
-
-    def add_permission(self, user_id, permission_type, faculty=None, course=None):
-        """Добавление права доступа"""
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute('''
-                INSERT INTO permissions (user_id, permission_type, faculty, course)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, permission_type, faculty, course))
-            self.conn.commit()
-            return cursor.lastrowid
-        except Exception as e:
-            print(f"Ошибка добавления права: {e}")
-            return None
-
-    def delete_permission(self, permission_id):
-        """Удаление права доступа"""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM permissions WHERE id = ?', (permission_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def get_all_permissions(self):
-        """Получение всех прав доступа"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT p.*, u.username, u.full_name 
-            FROM permissions p
-            JOIN users u ON p.user_id = u.id
-            ORDER BY p.id DESC
-        ''')
-        return cursor.fetchall()
+    # Добавьте этот метод в класс Database в файл database.py
 
     def get_statistics(self, user_id=None, role=None, course=None, faculty=None):
-        """Получение статистики с учетом прав доступа"""
+        """Получение статистики для StatisticsWidget (совместимость со старым кодом)"""
         cursor = self.conn.cursor()
 
         if role == 'admin':
             if course and course != 'Все курсы':
-                # Статистика по конкретному курсу для админа
-                query = '''
+                # Статистика по конкретному курсу
+                cursor.execute('''
                     SELECT 
                         ? as course,
                         COUNT(*) as total,
                         COUNT(CASE WHEN status = 'поступает' THEN 1 END) as applying,
-                        COUNT(CASE WHEN status = 'не поступает' THEN 1 END) as refused,
-                        COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                        COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                        COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
-                        COUNT(CASE WHEN document_status = 'Формируется в военкомате' THEN 1 END) as doc1,
-                        COUNT(CASE WHEN document_status = 'Отправлено в ВА ВКО' THEN 1 END) as doc2,
-                        COUNT(CASE WHEN document_status = 'В ВА ВКО' THEN 1 END) as doc3
+                        COUNT(CASE WHEN status = 'отказывается' THEN 1 END) as refused,
+                        COUNT(CASE WHEN category = 'м' THEN 1 END) as male,
+                        COUNT(CASE WHEN category = 'ж' THEN 1 END) as female,
+                        COUNT(CASE WHEN category = 'всл' THEN 1 END) as military,
+                        COUNT(CASE WHEN document_status = 'ВК' THEN 1 END) as doc1,
+                        COUNT(CASE WHEN document_status = 'ОК' THEN 1 END) as doc2,
+                        COUNT(CASE WHEN document_status = 'ВА ВКО' THEN 1 END) as doc3
                     FROM applicants 
-                    WHERE course = ?
-                '''
-                params = [course, course]
-
-                if faculty and faculty != 'Все факультеты':
-                    query = query.replace('WHERE course = ?', 'WHERE course = ? AND faculty = ?')
-                    params.append(faculty)
-
-                cursor.execute(query, params)
+                    WHERE agitator_course = ?
+                ''', (course, course))
             else:
-                # Общая статистика по всем курсам для админа - группируем по курсам
-                query = '''
+                # Общая статистика по всем курсам
+                cursor.execute('''
                     SELECT 
-                        course,
-                        faculty,
+                        agitator_course as course,
                         COUNT(*) as total,
-                        COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                        COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                        COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                        COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                        COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
-                        COUNT(CASE WHEN document_status = '1)Формируется в военкомате' THEN 1 END) as doc1,
-                        COUNT(CASE WHEN document_status = '2)Отправлено в ВА ВКО' THEN 1 END) as doc2,
-                        COUNT(CASE WHEN document_status = '3)В ВА ВКО' THEN 1 END) as doc3
+                        COUNT(CASE WHEN status = 'поступает' THEN 1 END) as applying,
+                        COUNT(CASE WHEN status = 'отказывается' THEN 1 END) as refused,
+                        COUNT(CASE WHEN category = 'м' THEN 1 END) as male,
+                        COUNT(CASE WHEN category = 'ж' THEN 1 END) as female,
+                        COUNT(CASE WHEN category = 'всл' THEN 1 END) as military,
+                        COUNT(CASE WHEN document_status = 'ВК' THEN 1 END) as doc1,
+                        COUNT(CASE WHEN document_status = 'ОК' THEN 1 END) as doc2,
+                        COUNT(CASE WHEN document_status = 'ВА ВКО' THEN 1 END) as doc3
                     FROM applicants 
-                '''
-
-                params = []
-                if faculty and faculty != 'Все факультеты':
-                    query += ' WHERE faculty = ?'
-                    params.append(faculty)
-
-                query += '''
-                    GROUP BY course, faculty
-                    ORDER BY 
-                        CASE 
-                            WHEN course = '1 курс' THEN 1
-                            WHEN course = '2 курс' THEN 2
-                            WHEN course = '3 курс' THEN 3
-                            WHEN course = '4 курс' THEN 4
-                            WHEN course = '5 курс' THEN 5
-                            ELSE 6
-                        END
-                '''
-
-                cursor.execute(query, params)
+                    WHERE agitator_course IS NOT NULL AND agitator_course != ''
+                    GROUP BY agitator_course
+                ''')
         else:
-            # Статистика для обычного пользователя (только его данные + права)
-            user_info = self.get_user_by_id(user_id)
-            user_course = user_info['course'] if user_info else '1 курс'
-            user_faculty = user_info['faculty'] if user_info else None
+            # Для обычного пользователя
+            cursor.execute('''
+                SELECT 
+                    agitator_course as course,
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN status = 'поступает' THEN 1 END) as applying,
+                    COUNT(CASE WHEN status = 'отказывается' THEN 1 END) as refused,
+                    COUNT(CASE WHEN category = 'м' THEN 1 END) as male,
+                    COUNT(CASE WHEN category = 'ж' THEN 1 END) as female,
+                    COUNT(CASE WHEN category = 'всл' THEN 1 END) as military,
+                    COUNT(CASE WHEN document_status = 'ВК' THEN 1 END) as doc1,
+                    COUNT(CASE WHEN document_status = 'ОК' THEN 1 END) as doc2,
+                    COUNT(CASE WHEN document_status = 'ВА ВКО' THEN 1 END) as doc3
+                FROM applicants 
+                WHERE created_by = ?
+                GROUP BY agitator_course
+            ''', (user_id,))
 
-            # Получаем права пользователя
-            permissions = self.get_user_permissions(user_id)
+        result = cursor.fetchall()
 
-            # Формируем запрос на основе прав
-            if any(p['permission_type'] == 'all' for p in permissions):
-                # Если есть право "все"
-                query = '''
-                    SELECT 
-                        course,
-                        COUNT(*) as total,
-                        COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                        COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                        COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                        COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                        COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military
-                    FROM applicants 
-                    GROUP BY course
-                '''
-                cursor.execute(query)
-            else:
-                # Собираем доступные курсы и факультеты из прав
-                available_courses = set()
-                available_faculties = set()
+        # Преобразуем в список словарей для совместимости
+        stats_list = []
+        for row in result:
+            stats_dict = dict(row)
+            stats_list.append(stats_dict)
 
-                for perm in permissions:
-                    if perm['permission_type'] == 'course' and perm['course']:
-                        available_courses.add(perm['course'])
-                    elif perm['permission_type'] == 'faculty' and perm['faculty']:
-                        available_faculties.add(perm['faculty'])
+        if not stats_list:
+            # Возвращаем пустую статистику
+            return [{
+                'course': course or '1 курс',
+                'total': 0,
+                'applying': 0,
+                'refused': 0,
+                'male': 0,
+                'female': 0,
+                'military': 0,
+                'doc1': 0,
+                'doc2': 0,
+                'doc3': 0
+            }]
 
-                # Добавляем собственные данные пользователя
-                if user_course:
-                    available_courses.add(user_course)
-                if user_faculty:
-                    available_faculties.add(user_faculty)
-
-                # Формируем запрос
-                if available_courses or available_faculties:
-                    conditions = []
-                    params = []
-
-                    if available_courses:
-                        courses_list = list(available_courses)
-                        placeholders = ','.join(['?'] * len(courses_list))
-                        conditions.append(f'course IN ({placeholders})')
-                        params.extend(courses_list)
-
-                    if available_faculties:
-                        faculties_list = list(available_faculties)
-                        placeholders = ','.join(['?'] * len(faculties_list))
-                        conditions.append(f'faculty IN ({placeholders})')
-                        params.extend(faculties_list)
-
-                    where_clause = ' OR '.join(conditions)
-
-                    cursor.execute(f'''
-                        SELECT 
-                            course,
-                            COUNT(*) as total,
-                            COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                            COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                            COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                            COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                            COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military
-                        FROM applicants 
-                        WHERE {where_clause}
-                        GROUP BY course
-                    ''', params)
-                else:
-                    # Только свои данные
-                    cursor.execute('''
-                        SELECT 
-                            ? as course,
-                            COUNT(*) as total,
-                            COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                            COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                            COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                            COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                            COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military
-                        FROM applicants 
-                        WHERE created_by = ?
-                    ''', (user_course, user_id))
-
-        stats = cursor.fetchall()
-
-        # Если нет данных, возвращаем пустой результат
-        if not stats:
-            if course and course != 'Все курсы':
-                return [{
-                    'course': course,
-                    'faculty': faculty or '',
-                    'total': 0,
-                    'applying': 0,
-                    'refused': 0,
-                    'male': 0,
-                    'female': 0,
-                    'military': 0,
-                    'doc1': 0,
-                    'doc2': 0,
-                    'doc3': 0
-                }]
-
-        return stats
-
-    def import_from_excel(self, file_path, user_id):
-        """Импорт данных из Excel файла"""
-        try:
-            # Чтение всех листов
-            xls = pd.ExcelFile(file_path)
-
-            for sheet_name in xls.sheet_names:
-                if 'курс' in sheet_name.lower():
-                    df = pd.read_excel(xls, sheet_name=sheet_name)
-
-                    # Преобразование данных
-                    for _, row in df.iterrows():
-                        if pd.notna(row.get('ФИО абитуриента', '')):
-                            applicant_data = {
-                                'study_group': str(row.get('уч.гр.', '')),
-                                'rank': str(row.get('В.зв', 'ряд.')),
-                                'student_name': str(row.get('ФИО', '')),
-                                'region': str(row.get('Субъект РФ', '')),
-                                'city': str(row.get('Населённый пункт', '')),
-                                'category': str(row.get('категория', 'муж')),
-                                'applicant_name': str(row.get('ФИО абитуриента', '')),
-                                'phone': str(row.get('Телефон', '')),
-                                'status': str(row.get('Статус', '1)поступает')),
-                                'document_status': str(row.get('Состояние личного дела на поступление', '')),
-                                'notes': str(row.get('Примечание', '')),
-                                'course': sheet_name.lower().strip(),
-                                'faculty': str(row.get('Факультет', ''))
-                            }
-
-                            self.add_applicant(user_id, applicant_data)
-
-            return True
-        except Exception as e:
-            print(f"Ошибка импорта: {e}")
-            return False
-
-    def get_all_faculties(self):
-        """Получение списка всех факультетов"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT DISTINCT faculty FROM applicants WHERE faculty IS NOT NULL AND faculty != ""')
-        return [row['faculty'] for row in cursor.fetchall()]
-
-    def get_all_courses(self):
-        """Получение списка всех курсов"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT DISTINCT course FROM applicants WHERE course IS NOT NULL AND course != ""')
-        return [row['course'] for row in cursor.fetchall()]
-
-    def get_total_statistics(self):
-        """Получение общей статистики по всем курсам"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
-                COUNT(CASE WHEN document_status = '1)Формируется в военкомате' THEN 1 END) as doc1,
-                COUNT(CASE WHEN document_status = '2)Отправлено в ВА ВКО' THEN 1 END) as doc2,
-                COUNT(CASE WHEN document_status = '3)В ВА ВКО' THEN 1 END) as doc3
-            FROM applicants
-        ''')
-
-        result = cursor.fetchone()
-        if result:
-            return dict(result)
-        return {
-            'total': 0,
-            'applying': 0,
-            'refused': 0,
-            'male': 0,
-            'female': 0,
-            'military': 0,
-            'doc1': 0,
-            'doc2': 0,
-            'doc3': 0
-        }
+        return stats_list
 
     def close(self):
         """Закрытие соединения с БД"""

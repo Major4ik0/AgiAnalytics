@@ -108,103 +108,427 @@ class LoginWindow(QWidget):
 class ApplicantDialog(QDialog):
     """Диалог добавления/редактирования абитуриента"""
 
-    def __init__(self, applicant_data=None, parent=None):
+    def __init__(self, applicant_data=None, user_role='user', db=None, parent=None):
         super().__init__(parent)
         self.applicant_data = applicant_data
+        self.user_role = user_role
+        self.db = db
         self.setModal(True)
 
         if applicant_data:
-            self.setWindowTitle('Редактировать абитуриента')
+            self.setWindowTitle('✏️ Редактировать абитуриента')
         else:
-            self.setWindowTitle('Добавить абитуриента')
+            self.setWindowTitle('➕ Добавить абитуриента')
 
-        self.setFixedSize(500, 600)
+        self.setMinimumSize(700, 750)
+        self.setMaximumSize(900, 800)
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
+        """Инициализация интерфейса"""
+        # Основной layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
 
-        form_layout = QFormLayout()
+        # Создаем скролл область для длинной формы
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
 
-        # Поля формы
-        self.study_group = QLineEdit()
-        self.rank = QComboBox()
-        self.rank.addItems(['ряд.', 'ефр.', 'мл. серж.', 'серж.', 'ст. серж.', "пр-к"])
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(20)
 
-        self.student_name = QLineEdit()
-        self.region = QLineEdit()
-        self.city = QLineEdit()
+        # ========== БЛОК 1: ИНФОРМАЦИЯ ОБ АБИТУРИЕНТЕ ==========
+        applicant_group = QGroupBox("📋 Информация об абитуриенте")
+        applicant_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 14px;
+                border: 2px solid #3498db;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #3498db;
+            }
+        """)
 
-        self.category = QComboBox()
-        self.category.addItems(['муж', 'жен', 'в/сл'])
+        applicant_layout = QFormLayout()
+        applicant_layout.setSpacing(12)
+        applicant_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        # Поле телефона с валидацией
-        self.phone = QLineEdit()
-        self.phone.setPlaceholderText('+7 (XXX) XXX-XX-XX')
-        self.phone.setInputMask('+7 (999) 999-99-99;_')
-        self.phone.textChanged.connect(self.validate_phone)
-
+        # ФИО абитуриента (обязательное)
         self.applicant_name = QLineEdit()
-        self.phone = QLineEdit()
+        self.applicant_name.setPlaceholderText("Иванов Иван Иванович")
+        self.applicant_name.setMinimumHeight(35)
+        applicant_layout.addRow("ФИО абитуриента *:", self.applicant_name)
 
-        self.status = QComboBox()
-        self.status.addItems(['1)поступает', '2)не поступает'])
-
-        self.document_status = QComboBox()
-        self.document_status.addItems([
-            '',
-            '1)Формируется в военкомате',
-            '2)Отправлено в ВА ВКО',
-            '3)В ВА ВКО'
+        # Субъект РФ
+        self.region = QComboBox()
+        self.region.setEditable(True)
+        self.region.setPlaceholderText("Выберите или введите субъект РФ")
+        self.region.addItems([
+            "Москва", "Санкт-Петербург", "Московская область", "Ленинградская область",
+            "Краснодарский край", "Красноярский край", "Ставропольский край",
+            "Республика Татарстан", "Республика Башкортостан", "Свердловская область",
+            "Ростовская область", "Новосибирская область", "Челябинская область",
+            "Нижегородская область", "Самарская область", "Омская область",
+            "Воронежская область", "Пермский край", "Волгоградская область"
         ])
+        self.region.setMinimumHeight(35)
+        applicant_layout.addRow("Субъект РФ:", self.region)
 
-        self.notes = QTextEdit()
-        self.notes.setMaximumHeight(100)
+        # Населенный пункт
+        self.city = QLineEdit()
+        self.city.setPlaceholderText("Населенный пункт")
+        self.city.setMinimumHeight(35)
+        applicant_layout.addRow("Населенный пункт:", self.city)
 
-        self.course = QComboBox()
-        self.course.addItems(['1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
+        # Категория
+        self.category = QComboBox()
+        self.category.addItems(["м", "ж", "всл"])
+        self.category.setMinimumHeight(35)
+        # Добавляем подсказки
+        self.category.setItemText(0, "м (Мужчина)")
+        self.category.setItemText(1, "ж (Женщина)")
+        self.category.setItemText(2, "всл (Военнослужащий)")
+        applicant_layout.addRow("Категория *:", self.category)
 
-        # Добавление полей в форму
-        form_layout.addRow('Учебная группа:', self.study_group)
-        form_layout.addRow('Звание:', self.rank)
-        form_layout.addRow('ФИО студента:', self.student_name)
-        form_layout.addRow('Субъект РФ:', self.region)
-        form_layout.addRow('Населенный пункт:', self.city)
-        form_layout.addRow('Категория:', self.category)
-        form_layout.addRow('ФИО абитуриента:', self.applicant_name)
-        form_layout.addRow('Телефон:', self.phone)
-        form_layout.addRow('Статус:', self.status)
-        form_layout.addRow('Статус документов:', self.document_status)
-        form_layout.addRow('Курс:', self.course)
-        form_layout.addRow('Примечания:', self.notes)
+        # Телефон с маской
+        self.phone = QLineEdit()
+        self.phone.setPlaceholderText("+7 (999) 999-99-99")
+        self.phone.setInputMask("+7 (999) 999-99-99;_")
+        self.phone.setMinimumHeight(35)
+        self.phone.textChanged.connect(self.validate_phone)
+        applicant_layout.addRow("Телефон *:", self.phone)
 
-        # Заполнение данных если редактирование
-        if self.applicant_data:
-            self.study_group.setText(self.applicant_data.get('study_group', ''))
-            self.rank.setCurrentText(self.applicant_data.get('rank', 'ряд.'))
-            self.student_name.setText(self.applicant_data.get('student_name', ''))
-            self.region.setText(self.applicant_data.get('region', ''))
-            self.city.setText(self.applicant_data.get('city', ''))
-            self.category.setCurrentText(self.applicant_data.get('category', 'муж'))
-            self.applicant_name.setText(self.applicant_data.get('applicant_name', ''))
-            self.phone.setText(self.applicant_data.get('phone', ''))
-            self.status.setCurrentText(self.applicant_data.get('status', '1)поступает'))
-            self.document_status.setCurrentText(self.applicant_data.get('document_status', ''))
-            self.course.setCurrentText(self.applicant_data.get('course', '1 курс'))
-            self.notes.setText(self.applicant_data.get('notes', ''))
+        # Образование
+        self.education = QComboBox()
+        self.education.setMinimumHeight(35)
+        self.load_education_types()
+        applicant_layout.addRow("Образование:", self.education)
 
-        layout.addLayout(form_layout)
+        # Статус
+        self.status = QComboBox()
+        self.status.addItems(["поступает", "отказывается"])
+        self.status.setMinimumHeight(35)
+        # Добавляем иконки в текст
+        self.status.setItemText(0, "✅ Поступает")
+        self.status.setItemText(1, "❌ Отказывается")
+        applicant_layout.addRow("Статус *:", self.status)
+
+        # Статус документов
+        self.document_status = QComboBox()
+        self.document_status.setMinimumHeight(35)
+        self.load_document_statuses()
+        applicant_layout.addRow("Документы:", self.document_status)
+
+        applicant_group.setLayout(applicant_layout)
+        scroll_layout.addWidget(applicant_group)
+
+        # ========== БЛОК 2: ИНФОРМАЦИЯ ОБ АГИТАТОРЕ ==========
+        agitator_group = QGroupBox("👤 Информация об агитаторе")
+        agitator_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 14px;
+                border: 2px solid #2ecc71;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #2ecc71;
+            }
+        """)
+
+        agitator_layout = QFormLayout()
+        agitator_layout.setSpacing(12)
+        agitator_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Тип агитатора
+        self.agitator_type_widget = QWidget()
+        agitator_type_layout = QHBoxLayout(self.agitator_type_widget)
+        agitator_type_layout.setContentsMargins(0, 0, 0, 0)
+        agitator_type_layout.setSpacing(15)
+
+        self.agitator_is_cadet = QCheckBox("Агитатор - курсант")
+        self.agitator_is_cadet.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+                font-weight: bold;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        self.agitator_is_cadet.stateChanged.connect(self.on_agitator_type_changed)
+
+        self.agitator_is_officer = QCheckBox("Агитатор - офицер/военнослужащий")
+        self.agitator_is_officer.setStyleSheet("""
+            QCheckBox {
+                spacing: 8px;
+                font-weight: bold;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        self.agitator_is_officer.stateChanged.connect(self.on_agitator_type_changed)
+
+        agitator_type_layout.addWidget(self.agitator_is_cadet)
+        agitator_type_layout.addWidget(self.agitator_is_officer)
+        agitator_type_layout.addStretch()
+        agitator_layout.addRow("Тип агитатора:", self.agitator_type_widget)
+
+        # Подразделение
+        self.agitator_department = QComboBox()
+        self.agitator_department.currentTextChanged.connect(self.on_department_changed)
+        self.agitator_department.setEditable(True)
+        self.agitator_department.setMinimumHeight(35)
+        self.load_departments()
+        agitator_layout.addRow("Подразделение:", self.agitator_department)
+
+        # ФИО агитатора
+        self.agitator_name = QLineEdit()
+        self.agitator_name.setPlaceholderText("Фамилия И.О.")
+        self.agitator_name.setMinimumHeight(35)
+        agitator_layout.addRow("ФИО агитатора *:", self.agitator_name)
+
+        # Контейнер для полей курсанта (по умолчанию скрыт)
+        self.cadet_widget = QWidget()
+        cadet_layout = QGridLayout(self.cadet_widget)
+        cadet_layout.setContentsMargins(0, 0, 0, 0)
+        cadet_layout.setSpacing(10)
+
+        # Курс (для курсанта)
+        self.agitator_course = QComboBox()
+        self.agitator_course.addItems(["1 курс", "2 курс", "3 курс", "4 курс", "5 курс"])
+        self.agitator_course.setMinimumHeight(35)
+        cadet_layout.addWidget(QLabel("Курс:"), 0, 0)
+        cadet_layout.addWidget(self.agitator_course, 0, 1)
+
+        # Группа (для курсанта)
+        self.agitator_group = QLineEdit()
+        self.agitator_group.setPlaceholderText("Номер группы")
+        self.agitator_group.setMinimumHeight(35)
+        cadet_layout.addWidget(QLabel("Группа:"), 1, 0)
+        cadet_layout.addWidget(self.agitator_group, 1, 1)
+
+        agitator_layout.addRow("", self.cadet_widget)
+
+        # Контейнер для полей офицера/военнослужащего (по умолчанию скрыт)
+        self.officer_widget = QWidget()
+        officer_layout = QHBoxLayout(self.officer_widget)
+        officer_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Звание (для офицера/военнослужащего)
+        self.agitator_rank = QComboBox()
+        self.agitator_rank.addItems([
+            "ряд.", "ефр.", "мл. серж.", "серж.", "ст. серж.", "старшина",
+            "прапорщик", "ст. прапорщик", "мл. лейт.", "лейтенант", "ст. лейтенант",
+            "капитан", "майор", "подполковник", "полковник", "генерал-майор",
+            "генерал-лейтенант", "генерал-полковник"
+        ])
+        self.agitator_rank.setMinimumHeight(35)
+        officer_layout.addWidget(QLabel("Звание:"))
+        officer_layout.addWidget(self.agitator_rank)
+        officer_layout.addStretch()
+
+        agitator_layout.addRow("", self.officer_widget)
+
+        agitator_group.setLayout(agitator_layout)
+        scroll_layout.addWidget(agitator_group)
+
+        # ========== БЛОК 3: ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ ==========
+        extra_group = QGroupBox("📝 Дополнительная информация")
+        extra_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 14px;
+                border: 2px solid #e67e22;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #e67e22;
+            }
+        """)
+
+        extra_layout = QFormLayout()
+        extra_layout.setSpacing(12)
+
+        # Примечания
+        self.notes = QLineEdit()
+        self.notes.setPlaceholderText("Дополнительные замечания, комментарии...")
+        self.notes.setMinimumHeight(35)
+        extra_layout.addRow("Примечания:", self.notes)
+
+        extra_group.setLayout(extra_layout)
+        scroll_layout.addWidget(extra_group)
+
+        # Информация об обязательных полях
+        info_label = QLabel("* - поля, обязательные для заполнения")
+        info_label.setStyleSheet("color: #e74c3c; font-size: 11px; margin-top: 5px;")
+        scroll_layout.addWidget(info_label)
+
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(scroll_area)
 
         # Кнопки
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.accepted.connect(self.accept)
+        button_box.accepted.connect(self.validate_and_accept)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
 
-        self.setLayout(layout)
+        # Стилизация кнопок
+        ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setText("💾 Сохранить")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-weight: bold;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
+
+        cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_button.setText("❌ Отмена")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-weight: bold;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+
+        main_layout.addWidget(button_box)
+
+        # Заполнение данных если редактирование
+        if self.applicant_data:
+            self.load_applicant_data()
+
+        # Устанавливаем начальное состояние полей
+        self.on_agitator_type_changed()
+
+    def load_education_types(self):
+        """Загрузка типов образования из БД"""
+        if self.db:
+            education_list = self.db.get_education_types()
+            self.education.clear()
+            self.education.addItems(education_list)
+        else:
+            # Данные по умолчанию
+            self.education.addItems(["СОШ", "СПО", "СВУ", "ПКУ", "КК"])
+
+    def load_document_statuses(self):
+        """Загрузка статусов документов из БД"""
+        if self.db:
+            statuses = self.db.get_document_statuses()
+            self.document_status.clear()
+            self.document_status.addItems(statuses)
+        else:
+            # Данные по умолчанию
+            self.document_status.addItems(["ВК", "ОК", "ВА ВКО"])
+
+    def load_departments(self):
+        """Загрузка подразделений из БД (без дублей)"""
+        if self.db:
+            departments = self.db.get_departments()
+            self.agitator_department.clear()
+
+            # Используем set для уникальности
+            unique_departments = set()
+            for dept in departments:
+                unique_departments.add(dept['name'])
+
+            # Добавляем "Выберите подразделение" первым
+            self.agitator_department.addItem("")
+
+            # Добавляем уникальные подразделения
+            for dept_name in sorted(unique_departments):
+                self.agitator_department.addItem(dept_name)
+        else:
+            # Данные по умолчанию
+            self.agitator_department.addItems([
+                "",
+                "Факультет 1",
+                "Факультет 2",
+                "Кафедра 1",
+                "Кафедра 2"
+            ])
+
+    def on_agitator_type_changed(self):
+        """Обработка изменения типа агитатора"""
+        is_cadet = self.agitator_is_cadet.isChecked()
+        is_officer = self.agitator_is_officer.isChecked()
+
+        # Получаем выбранное подразделение
+        department = self.agitator_department.currentText()
+
+        # Проверяем, может ли быть курсант в этом подразделении
+        can_be_cadet = 'Факультет 1' in department or 'Факультет 2' in department
+
+        # Обновляем состояние чекбокса курсанта
+        self.agitator_is_cadet.setEnabled(can_be_cadet)
+
+        if not can_be_cadet and is_cadet:
+            # Если выбрано неподходящее подразделение, переключаем на офицера
+            self.agitator_is_cadet.setChecked(False)
+            self.agitator_is_officer.setChecked(True)
+            is_cadet = False
+            is_officer = True
+
+        # Показываем/скрываем соответствующие поля
+        self.cadet_widget.setVisible(is_cadet and can_be_cadet)
+        self.officer_widget.setVisible(is_officer)
+
+        # Если ни один не выбран, показываем оба (по умолчанию курсант если можно)
+        if not is_cadet and not is_officer:
+            if can_be_cadet:
+                self.agitator_is_cadet.setChecked(True)
+            else:
+                self.agitator_is_officer.setChecked(True)
+
+    def on_department_changed(self, text):
+        """Обработка изменения подразделения"""
+        self.on_agitator_type_changed()
 
     def validate_phone(self, text):
         """Валидация номера телефона"""
@@ -212,35 +536,65 @@ class ApplicantDialog(QDialog):
         clean_text = text.replace('(', '').replace(')', '').replace('-', '').replace(' ', '').replace('_', '').replace(
             '+', '')
 
-        # Если номер неполный, сбрасываем маску
         if len(clean_text) < 11:
-            self.phone.setStyleSheet("")
+            self.phone.setStyleSheet("border: 1px solid #e74c3c;")
         else:
-            self.phone.setStyleSheet("border: 1px solid green;")
+            self.phone.setStyleSheet("border: 1px solid #2ecc71;")
 
-    def get_data(self):
-        """Получение данных из формы"""
-        phone_text = self.phone.text()
-        # Очищаем номер от маски
-        clean_phone = self.clean_phone_number(phone_text)
+    def validate_and_accept(self):
+        """Валидация обязательных полей (только те, что в таблице)"""
+        errors = []
 
-        return {
-            'study_group': self.study_group.text().strip(),
-            'rank': self.rank.currentText(),
-            'student_name': self.student_name.text().strip(),
-            'region': self.region.text().strip(),
-            'city': self.city.text().strip(),
-            'category': self.category.currentText(),
-            'applicant_name': self.applicant_name.text().strip(),
-            'phone': clean_phone,  # Сохраняем очищенный номер
-            'status': self.status.currentText(),
-            'document_status': self.document_status.currentText(),
-            'notes': self.notes.toPlainText().strip(),
-            'course': self.course.currentText(),
-        }
+        # Обязательные поля из таблицы:
+        # 1. ФИО абитуриента
+        if not self.applicant_name.text().strip():
+            errors.append("ФИО абитуриента")
+            self.applicant_name.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.applicant_name.setStyleSheet("")
 
-    @staticmethod
-    def clean_phone_number(phone):
+        # 2. Телефон (должен быть заполнен)
+        phone_clean = self.clean_phone_number(self.phone.text())
+        if not phone_clean or len(phone_clean) < 10:
+            errors.append("Телефон")
+            self.phone.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.phone.setStyleSheet("")
+
+        # 3. ФИО агитатора (обязательно)
+        if not self.agitator_name.text().strip():
+            errors.append("ФИО агитатора")
+            self.agitator_name.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.agitator_name.setStyleSheet("")
+
+        # 4. Подразделение (обязательно)
+        if not self.agitator_department.currentText().strip():
+            errors.append("Подразделение")
+            self.agitator_department.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.agitator_department.setStyleSheet("")
+
+        # Категория - всегда выбрана по умолчанию, не проверяем
+        # Статус - всегда выбран по умолчанию, не проверяем
+
+        # Для курсанта: если выбран тип "курсант", то группа обязательна
+        if self.agitator_is_cadet.isChecked():
+            if not self.agitator_group.text().strip():
+                errors.append("Группа (для курсанта)")
+                self.agitator_group.setStyleSheet("border: 2px solid #e74c3c;")
+            else:
+                self.agitator_group.setStyleSheet("")
+
+        # Если есть ошибки
+        if errors:
+            error_msg = "Пожалуйста, заполните следующие обязательные поля:\n• " + "\n• ".join(errors)
+            QMessageBox.warning(self, "Ошибка валидации", error_msg)
+            return
+
+        self.accept()
+
+    def clean_phone_number(self, phone):
         """Очистка номера телефона от форматирования"""
         if not phone:
             return ""
@@ -249,37 +603,519 @@ class ApplicantDialog(QDialog):
         digits = ''.join(filter(str.isdigit, phone))
 
         if not digits:
-            return phone
+            return ""
 
-        # Если номер начинается с 8 и имеет 11 цифр
+        # Приводим к формату 7XXXXXXXXXX
         if digits.startswith('8') and len(digits) == 11:
             return '7' + digits[1:]
-        # Если номер имеет 10 цифр (без кода страны)
         elif len(digits) == 10:
             return '7' + digits
-        # Если номер уже в правильном формате
         elif digits.startswith('7') and len(digits) == 11:
             return digits
 
+        return digits
+
+    def load_applicant_data(self):
+        """Загрузка данных абитуриента для редактирования"""
+        # Абитуриент
+        self.applicant_name.setText(self.applicant_data.get('applicant_name', ''))
+
+        # Регион
+        region = self.applicant_data.get('region', '')
+        if region:
+            index = self.region.findText(region)
+            if index >= 0:
+                self.region.setCurrentIndex(index)
+            else:
+                self.region.setEditText(region)
+
+        self.city.setText(self.applicant_data.get('city', ''))
+
+        # Категория
+        category = self.applicant_data.get('category', 'м')
+        if category == 'м':
+            self.category.setCurrentIndex(0)
+        elif category == 'ж':
+            self.category.setCurrentIndex(1)
+        else:
+            self.category.setCurrentIndex(2)
+
+        # Телефон
+        phone = self.applicant_data.get('phone', '')
+        if phone:
+            formatted = self.format_phone_for_display(phone)
+            self.phone.setText(formatted)
+
+        # Образование
+        edu = self.applicant_data.get('education', '')
+        if edu:
+            index = self.education.findText(edu)
+            if index >= 0:
+                self.education.setCurrentIndex(index)
+
+        # Статус
+        status = self.applicant_data.get('status', 'поступает')
+        self.status.setCurrentIndex(0 if status == 'поступает' else 1)
+
+        # Документы
+        doc_status = self.applicant_data.get('document_status', '')
+        if doc_status:
+            index = self.document_status.findText(doc_status)
+            if index >= 0:
+                self.document_status.setCurrentIndex(index)
+
+        # Агитатор
+        department = self.applicant_data.get('agitator_department', '')
+        if department:
+            index = self.agitator_department.findText(department)
+            if index >= 0:
+                self.agitator_department.setCurrentIndex(index)
+            else:
+                self.agitator_department.setEditText(department)
+
+        self.agitator_name.setText(self.applicant_data.get('agitator_name', ''))
+
+        # Тип агитатора
+        is_cadet = self.applicant_data.get('agitator_is_cadet', False)
+        if is_cadet:
+            self.agitator_is_cadet.setChecked(True)
+            course = self.applicant_data.get('agitator_course', '1 курс')
+            index = self.agitator_course.findText(course)
+            if index >= 0:
+                self.agitator_course.setCurrentIndex(index)
+            self.agitator_group.setText(self.applicant_data.get('agitator_group', ''))
+        else:
+            self.agitator_is_officer.setChecked(True)
+            rank = self.applicant_data.get('agitator_rank', '')
+            if rank:
+                index = self.agitator_rank.findText(rank)
+                if index >= 0:
+                    self.agitator_rank.setCurrentIndex(index)
+
+        # Примечания
+        self.notes.setText(self.applicant_data.get('notes', ''))
+
+        # Обновляем состояние полей
+        self.on_agitator_type_changed()
+
+    @staticmethod
+    def format_phone_for_display(phone):
+        """Форматирование телефона для отображения в маске"""
+        digits = ''.join(filter(str.isdigit, str(phone)))
+
+        if len(digits) >= 11:
+            # Формат +7 (XXX) XXX-XX-XX
+            return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:11]}"
         return phone
 
     def get_data(self):
         """Получение данных из формы"""
-        return {
-            'study_group': self.study_group.text().strip(),
-            'rank': self.rank.currentText(),
-            'student_name': self.student_name.text().strip(),
-            'region': self.region.text().strip(),
-            'city': self.city.text().strip(),
-            'category': self.category.currentText(),
+        # Получаем чистый телефон
+        phone = self.clean_phone_number(self.phone.text())
+
+        # Получаем категорию
+        category_map = {0: 'м', 1: 'ж', 2: 'всл'}
+        category = category_map.get(self.category.currentIndex(), 'м')
+
+        # Получаем статус
+        status = 'поступает' if self.status.currentIndex() == 0 else 'отказывается'
+
+        # Данные абитуриента
+        data = {
             'applicant_name': self.applicant_name.text().strip(),
-            'phone': self.phone.text().strip(),
-            'status': self.status.currentText(),
+            'region': self.region.currentText().strip() if self.region.currentText() != "Выберите или введите субъект РФ" else "",
+            'city': self.city.text().strip(),
+            'category': category,
+            'phone': phone,
+            'education': self.education.currentText(),
+            'status': status,
             'document_status': self.document_status.currentText(),
-            'notes': self.notes.toPlainText().strip(),
-            'course': self.course.currentText(),
-            # 'faculty': self.faculty.text().strip()
+            'agitator_department': self.agitator_department.currentText().strip(),
+            'agitator_name': self.agitator_name.text().strip(),
+            'agitator_is_cadet': self.agitator_is_cadet.isChecked(),
+            'notes': self.notes.text().strip(),
         }
+
+        # Данные в зависимости от типа агитатора
+        if self.agitator_is_cadet.isChecked():
+            data['agitator_course'] = self.agitator_course.currentText()
+            data['agitator_group'] = self.agitator_group.text().strip()
+            data['agitator_rank'] = ''
+        else:
+            data['agitator_course'] = ''
+            data['agitator_group'] = ''
+            data['agitator_rank'] = self.agitator_rank.currentText()
+
+        return data
+
+
+# -*- coding: utf-8 -*-
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+                             QLineEdit, QComboBox, QPushButton, QLabel,
+                             QDialogButtonBox, QGroupBox, QCheckBox, QWidget,
+                             QScrollArea, QGridLayout)
+from PyQt5.QtCore import Qt
+
+
+class AdvancedSearchDialog(QDialog):
+    """Диалог расширенного поиска"""
+
+    def __init__(self, db=None, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.filters = {}
+        self.setModal(True)
+        self.setWindowTitle('🔍 Расширенный поиск')
+        self.setMinimumSize(500, 450)
+        self.setMaximumSize(700, 600)
+        self.init_ui()
+
+    def init_ui(self):
+        """Инициализация интерфейса"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title_label = QLabel("Расширенный поиск абитуриентов")
+        title_font = title_label.font()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+
+        # Создаем скролл область
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; }")
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(15)
+
+        # ========== БЛОК 1: ИНФОРМАЦИЯ ОБ АБИТУРИЕНТЕ ==========
+        applicant_group = QGroupBox("📋 Информация об абитуриенте")
+        applicant_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+
+        applicant_layout = QFormLayout()
+        applicant_layout.setSpacing(10)
+
+        # ФИО абитуриента
+        self.applicant_name = QLineEdit()
+        self.applicant_name.setPlaceholderText("Введите ФИО полностью или частично")
+        self.applicant_name.setClearButtonEnabled(True)
+        applicant_layout.addRow("ФИО абитуриента:", self.applicant_name)
+
+        # Субъект РФ
+        self.region = QComboBox()
+        self.region.setEditable(True)
+        self.region.setPlaceholderText("Выберите или введите субъект РФ")
+        self.region.setClearButtonEnabled(True)
+        self.load_regions()
+        applicant_layout.addRow("Субъект РФ:", self.region)
+
+        # Населенный пункт
+        self.city = QLineEdit()
+        self.city.setPlaceholderText("Введите населенный пункт")
+        self.city.setClearButtonEnabled(True)
+        applicant_layout.addRow("Населенный пункт:", self.city)
+
+        # Категория
+        self.category = QComboBox()
+        self.category.addItems(["все", "м", "ж", "всл"])
+        self.category.setItemText(0, "Все категории")
+        self.category.setItemText(1, "Мужчина")
+        self.category.setItemText(2, "Женщина")
+        self.category.setItemText(3, "Военнослужащий")
+        applicant_layout.addRow("Категория:", self.category)
+
+        # Образование (множественный выбор)
+        self.education_group = QGroupBox("Образование")
+        self.education_group.setStyleSheet("QGroupBox { border: none; margin-top: 5px; }")
+        education_layout = QHBoxLayout(self.education_group)
+
+        self.education_checkboxes = []
+        education_types = self.get_education_types()
+        for edu in education_types:
+            checkbox = QCheckBox(edu)
+            self.education_checkboxes.append(checkbox)
+            education_layout.addWidget(checkbox)
+        education_layout.addStretch()
+
+        applicant_layout.addRow("", self.education_group)
+
+        # Статус
+        self.status = QComboBox()
+        self.status.addItems(["все", "поступает", "отказывается"])
+        self.status.setItemText(0, "Все статусы")
+        applicant_layout.addRow("Статус:", self.status)
+
+        applicant_group.setLayout(applicant_layout)
+        scroll_layout.addWidget(applicant_group)
+
+        # ========== БЛОК 2: ИНФОРМАЦИЯ ОБ АГИТАТОРЕ ==========
+        agitator_group = QGroupBox("👤 Информация об агитаторе")
+        agitator_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+
+        agitator_layout = QFormLayout()
+        agitator_layout.setSpacing(10)
+
+        # ФИО агитатора
+        self.agitator_name = QLineEdit()
+        self.agitator_name.setPlaceholderText("Введите ФИО агитатора")
+        self.agitator_name.setClearButtonEnabled(True)
+        agitator_layout.addRow("ФИО агитатора:", self.agitator_name)
+
+        # Подразделение
+        self.agitator_department = QComboBox()
+        self.agitator_department.setEditable(True)
+        self.agitator_department.setPlaceholderText("Выберите или введите подразделение")
+        self.agitator_department.setClearButtonEnabled(True)
+        self.load_departments()
+        agitator_layout.addRow("Подразделение:", self.agitator_department)
+
+        # Тип агитатора
+        self.agitator_type = QComboBox()
+        self.agitator_type.addItems(["все", "курсант", "офицер/военнослужащий"])
+        self.agitator_type.setItemText(0, "Все")
+        agitator_layout.addRow("Тип агитатора:", self.agitator_type)
+
+        agitator_group.setLayout(agitator_layout)
+        scroll_layout.addWidget(agitator_group)
+
+        # ========== БЛОК 3: ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ ==========
+        extra_group = QGroupBox("📅 Дополнительные параметры")
+        extra_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+
+        extra_layout = QGridLayout()
+        extra_layout.setSpacing(10)
+
+        # Статус документов
+        extra_layout.addWidget(QLabel("Документы:"), 0, 0)
+        self.document_status = QComboBox()
+        self.document_status.setEditable(True)
+        self.document_status.setClearButtonEnabled(True)
+        self.load_document_statuses()
+        extra_layout.addWidget(self.document_status, 0, 1)
+
+        # Курс (для курсанта)
+        extra_layout.addWidget(QLabel("Курс:"), 1, 0)
+        self.course = QComboBox()
+        self.course.addItems(["все", "1 курс", "2 курс", "3 курс", "4 курс", "5 курс"])
+        self.course.setItemText(0, "Все курсы")
+        extra_layout.addWidget(self.course, 1, 1)
+
+        # Группа
+        extra_layout.addWidget(QLabel("Группа:"), 2, 0)
+        self.group = QLineEdit()
+        self.group.setPlaceholderText("Номер группы")
+        self.group.setClearButtonEnabled(True)
+        extra_layout.addWidget(self.group, 2, 1)
+
+        extra_group.setLayout(extra_layout)
+        scroll_layout.addWidget(extra_group)
+
+        # Кнопки быстрого выбора
+        quick_buttons_widget = QWidget()
+        quick_buttons_layout = QHBoxLayout(quick_buttons_widget)
+
+        self.clear_all_btn = QPushButton("🗑️ Очистить все")
+        self.clear_all_btn.clicked.connect(self.clear_all_filters)
+
+        self.select_none_btn = QPushButton("☐ Снять все выделения")
+        self.select_none_btn.clicked.connect(self.clear_education_selection)
+
+        quick_buttons_layout.addWidget(self.clear_all_btn)
+        quick_buttons_layout.addWidget(self.select_none_btn)
+        quick_buttons_layout.addStretch()
+
+        scroll_layout.addWidget(quick_buttons_widget)
+        scroll_layout.addStretch()
+
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+        # Кнопки диалога
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+
+        ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setText("🔍 Найти")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+
+        cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_button.setText("❌ Отмена")
+
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+
+        layout.addWidget(button_box)
+
+    def load_regions(self):
+        """Загрузка субъектов РФ (уникальные из БД)"""
+        if self.db:
+            cursor = self.db.conn.cursor()
+            cursor.execute(
+                'SELECT DISTINCT region FROM applicants WHERE region IS NOT NULL AND region != "" ORDER BY region')
+            regions = [row['region'] for row in cursor.fetchall()]
+            self.region.addItems(regions)
+        else:
+            # Данные по умолчанию
+            default_regions = [
+                "Москва", "Санкт-Петербург", "Московская область", "Ленинградская область",
+                "Краснодарский край", "Красноярский край", "Ставропольский край"
+            ]
+            self.region.addItems(default_regions)
+
+    def load_departments(self):
+        """Загрузка подразделений (уникальные из БД)"""
+        if self.db:
+            cursor = self.db.conn.cursor()
+            cursor.execute(
+                'SELECT DISTINCT agitator_department FROM applicants WHERE agitator_department IS NOT NULL AND agitator_department != "" ORDER BY agitator_department')
+            departments = [row['agitator_department'] for row in cursor.fetchall()]
+            self.agitator_department.addItems(departments)
+        else:
+            self.agitator_department.addItems(["Факультет 1", "Факультет 2", "Кафедра 1", "Кафедра 2"])
+
+    def get_education_types(self):
+        """Получение типов образования"""
+        if self.db:
+            return self.db.get_education_types()
+        return ["СОШ", "СПО", "СВУ", "ПКУ", "КК"]
+
+    def load_document_statuses(self):
+        """Загрузка статусов документов"""
+        if self.db:
+            statuses = self.db.get_document_statuses()
+            self.document_status.addItems([""] + statuses)
+        else:
+            self.document_status.addItems(["", "ВК", "ОК", "ВА ВКО"])
+
+    def clear_all_filters(self):
+        """Очистка всех фильтров"""
+        self.applicant_name.clear()
+        self.region.setCurrentIndex(0)
+        self.city.clear()
+        self.category.setCurrentIndex(0)
+        self.status.setCurrentIndex(0)
+        self.agitator_name.clear()
+        self.agitator_department.setCurrentIndex(0)
+        self.agitator_type.setCurrentIndex(0)
+        self.document_status.setCurrentIndex(0)
+        self.course.setCurrentIndex(0)
+        self.group.clear()
+        self.clear_education_selection()
+
+    def clear_education_selection(self):
+        """Снятие всех выделений образования"""
+        for checkbox in self.education_checkboxes:
+            checkbox.setChecked(False)
+
+    def get_filters(self):
+        """Получение выбранных фильтров"""
+        filters = {}
+
+        # Абитуриент
+        if self.applicant_name.text().strip():
+            filters['applicant_name'] = self.applicant_name.text().strip()
+
+        if self.region.currentText().strip() and self.region.currentText() != "Выберите или введите субъект РФ":
+            filters['region'] = self.region.currentText().strip()
+
+        if self.city.text().strip():
+            filters['city'] = self.city.text().strip()
+
+        category = self.category.currentText()
+        if category != "все":
+            filters['category'] = 'м' if category == "Мужчина" else 'ж' if category == "Женщина" else 'всл'
+
+        # Образование (множественный выбор)
+        selected_education = [cb.text() for cb in self.education_checkboxes if cb.isChecked()]
+        if selected_education:
+            filters['education'] = selected_education
+
+        status = self.status.currentText()
+        if status != "все":
+            filters['status'] = status
+
+        # Агитатор
+        if self.agitator_name.text().strip():
+            filters['agitator_name'] = self.agitator_name.text().strip()
+
+        if self.agitator_department.currentText().strip():
+            filters['agitator_department'] = self.agitator_department.currentText().strip()
+
+        agitator_type = self.agitator_type.currentText()
+        if agitator_type != "все":
+            filters['agitator_is_cadet'] = (agitator_type == "курсант")
+
+        # Дополнительные
+        if self.document_status.currentText().strip():
+            filters['document_status'] = self.document_status.currentText().strip()
+
+        course = self.course.currentText()
+        if course != "все":
+            filters['agitator_course'] = course
+
+        if self.group.text().strip():
+            filters['agitator_group'] = self.group.text().strip()
+
+        return filters
 
 
 class SelectionStatsDialog(QDialog):
@@ -936,6 +1772,7 @@ class MainWindow(QMainWindow):
     def __init__(self, user_data):
         super().__init__()
         icon_path = get_icon_path("icon.ico")
+        self.advanced_filters = {}
         if icon_path and os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         self.user_data = user_data
@@ -1015,6 +1852,76 @@ class MainWindow(QMainWindow):
         # Обновление данных
         self.refresh_data()
 
+    def open_advanced_search(self):
+        """Открытие диалога расширенного поиска"""
+        dialog = AdvancedSearchDialog(self.db, self)
+
+        # Если есть сохраненные фильтры, загружаем их (опционально)
+        if self.advanced_filters:
+            # Здесь можно восстановить предыдущие фильтры
+            pass
+
+        if dialog.exec():
+            self.advanced_filters = dialog.get_filters()
+            self.refresh_data()
+
+            # Показываем информацию о примененных фильтрах
+            if self.advanced_filters:
+                filter_count = len(self.advanced_filters)
+                self.statusBar().showMessage(f"🔍 Применено расширенных фильтров: {filter_count}", 3000)
+                # Подсвечиваем кнопку
+                self.advanced_search_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #8e44ad;
+                        color: white;
+                        border: 2px solid #f39c12;
+                        border-radius: 5px;
+                        padding: 8px 16px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #7d3c98;
+                    }
+                """)
+            else:
+                self.reset_filters_style()
+
+    def reset_all_filters(self):
+        """Сброс всех фильтров"""
+        # Сбрасываем обычный поиск
+        self.search_input.clear()
+
+        # Сбрасываем расширенные фильтры
+        self.advanced_filters = {}
+
+        # Сбрасываем фильтр по курсу (если есть)
+        if hasattr(self, 'course_filter'):
+            self.course_filter.setCurrentIndex(0)
+
+        # Обновляем таблицу
+        self.refresh_data()
+
+        # Сбрасываем стиль кнопки
+        self.reset_filters_style()
+
+        self.statusBar().showMessage("Все фильтры сброшены", 2000)
+
+    def reset_filters_style(self):
+        """Сброс стиля кнопки расширенного поиска"""
+        self.advanced_search_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+        """)
+
     def logout(self):
         """Выход из системы"""
         reply = QMessageBox.question(
@@ -1048,26 +1955,69 @@ class MainWindow(QMainWindow):
 
         filter_layout.addStretch()
 
-        # Поиск
+        # Обычный поиск
         search_label = QLabel('Поиск:')
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText('Введите текст для поиска...')
         self.search_input.textChanged.connect(self.refresh_data)
-        self.search_input.setMinimumWidth(300)
+        self.search_input.setMinimumWidth(250)
+
+        # Кнопка расширенного поиска
+        self.advanced_search_btn = QPushButton("🔍 Расширенный поиск")
+        self.advanced_search_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #9b59b6;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #8e44ad;
+                }
+            """)
+        self.advanced_search_btn.clicked.connect(self.open_advanced_search)
+
+        # Кнопка сброса фильтров
+        self.reset_filters_btn = QPushButton("✖️ Сбросить фильтры")
+        self.reset_filters_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #e67e22;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #d35400;
+                }
+            """)
+        self.reset_filters_btn.clicked.connect(self.reset_all_filters)
 
         filter_layout.addWidget(search_label)
         filter_layout.addWidget(self.search_input)
+        filter_layout.addWidget(self.advanced_search_btn)
+        filter_layout.addWidget(self.reset_filters_btn)
 
         filter_widget.setLayout(filter_layout)
         layout.addWidget(filter_widget)
 
-        # Таблица
         self.table = QTableWidget()
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(11)  # 10 колонок + ID скрытая
         self.table.setHorizontalHeaderLabels([
-            "ID", 'Уч. группа', 'Звание', 'ФИО студента',
-            'Регион', 'Город', 'Категория', 'ФИО абитуриента',
-            'Телефон', 'Статус', 'Документы'
+            "ID",  # скрытая
+            "ФИО абитуриента",
+            "Субъект РФ",
+            "Населенный пункт",
+            "Категория",
+            "Телефон",
+            "Образование",
+            "Статус",
+            "Документы",
+            "Подразделение агитатора",
+            "ФИО агитатора"
         ])
 
         # Настройка таблицы
@@ -1075,25 +2025,23 @@ class MainWindow(QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-
-        # Включаем возможность выделения нескольких строк
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-
-        # Подключаем сигнал изменения выделения
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
-        # Установка минимальных размеров для колонок
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        # Скрываем колонку ID
+        self.table.setColumnHidden(0, True)
 
-        # Особые настройки для определенных колонок
-        self.table.setColumnHidden(0, True)  # id
-        self.table.setColumnWidth(2, 200)  # ФИО студента
-        self.table.setColumnWidth(6, 200)  # ФИО абитуриента
-        self.table.setColumnWidth(7, 120)  # Телефон
-
-        # Включаем tooltip для отображения полного текста
-        self.table.setMouseTracking(True)
-        self.table.viewport().installEventFilter(self)
+        # Устанавливаем ширину колонок
+        self.table.setColumnWidth(1, 250)  # ФИО абитуриента
+        self.table.setColumnWidth(2, 150)  # Субъект РФ
+        self.table.setColumnWidth(3, 150)  # Населенный пункт
+        self.table.setColumnWidth(4, 100)  # Категория
+        self.table.setColumnWidth(5, 120)  # Телефон
+        self.table.setColumnWidth(6, 100)  # Образование
+        self.table.setColumnWidth(7, 100)  # Статус
+        self.table.setColumnWidth(8, 100)  # Документы
+        self.table.setColumnWidth(9, 150)  # Подразделение агитатора
+        self.table.setColumnWidth(10, 200)  # ФИО агитатора
 
         layout.addWidget(self.table)
 
@@ -1243,8 +2191,8 @@ class MainWindow(QMainWindow):
         stats_dialog.show()
 
     def refresh_data(self):
-        """Обновление данных в таблице (обновленная версия с сохранением выделения)"""
-        # Сохраняем выделенные ID перед обновлением
+        """Обновление данных в таблице"""
+        # Сохраняем выделенные ID
         selected_ids = set()
         for item in self.table.selectedItems():
             row = item.row()
@@ -1252,120 +2200,125 @@ class MainWindow(QMainWindow):
             if id_item:
                 selected_ids.add(int(id_item.text()))
 
-        # Получение данных из БД
+        # Получение данных из БД с учетом расширенных фильтров
         if self.user_data['role'] == 'admin':
-            if hasattr(self, 'course_filter') and self.course_filter.currentText() != 'Все курсы':
-                applicants = self.db.get_applicants(self.user_data['id'], 'admin', self.course_filter.currentText())
-            else:
-                applicants = self.db.get_applicants(self.user_data['id'], 'admin')
+            course = self.course_filter.currentText() if hasattr(self, 'course_filter') else None
+            applicants = self.db.get_applicants(
+                self.user_data['id'],
+                'admin',
+                course if course != 'Все курсы' else None,
+                self.advanced_filters if self.advanced_filters else None
+            )
         else:
-            applicants = self.db.get_applicants(self.user_data['id'], self.user_data['role'])
+            applicants = self.db.get_applicants(
+                self.user_data['id'],
+                self.user_data['role'],
+                None,
+                self.advanced_filters if self.advanced_filters else None
+            )
 
-        # Применение поиска
+        # Обычный поиск (дополнительно к расширенному)
         search_text = self.search_input.text().lower().strip()
-        if search_text:
+        if search_text and not self.advanced_filters:
+            # Если нет расширенных фильтров, применяем обычный поиск
             filtered_applicants = []
             for applicant in applicants:
                 applicant_dict = dict(applicant)
-                # Поиск по всем текстовым полям
                 text_fields = [
-                    str(applicant_dict.get('id', '')),
-                    str(applicant_dict.get('study_group', '')),
-                    str(applicant_dict.get('student_name', '')),
+                    str(applicant_dict.get('applicant_name', '')),
                     str(applicant_dict.get('region', '')),
                     str(applicant_dict.get('city', '')),
-                    str(applicant_dict.get('applicant_name', '')),
                     str(applicant_dict.get('phone', '')),
-                    str(applicant_dict.get('course', '')),
+                    str(applicant_dict.get('agitator_name', '')),
+                    str(applicant_dict.get('agitator_department', '')),
+                ]
+                if any(search_text in field.lower() for field in text_fields):
+                    filtered_applicants.append(applicant)
+            applicants = filtered_applicants
+        elif search_text and self.advanced_filters:
+            # Если есть расширенные фильтры, обычный поиск работает поверх них
+            filtered_applicants = []
+            for applicant in applicants:
+                applicant_dict = dict(applicant)
+                text_fields = [
+                    str(applicant_dict.get('applicant_name', '')),
+                    str(applicant_dict.get('region', '')),
+                    str(applicant_dict.get('city', '')),
+                    str(applicant_dict.get('phone', '')),
+                    str(applicant_dict.get('agitator_name', '')),
                 ]
                 if any(search_text in field.lower() for field in text_fields):
                     filtered_applicants.append(applicant)
             applicants = filtered_applicants
 
-        # Отключаем сигналы на время обновления
         self.table.blockSignals(True)
-
         self.table.setRowCount(len(applicants))
 
-        # Словарь для сопоставления ID с новыми строками
         id_to_row = {}
+
+        # Категории для отображения
+        category_map = {'м': 'Мужчина', 'ж': 'Женщина', 'всл': 'Военнослужащий'}
 
         for row, applicant in enumerate(applicants):
             applicant_dict = dict(applicant)
-            phone = applicant_dict.get('phone', '')
-            formatted_phone = self.format_phone_number(phone)
-
-            # Сохраняем ID для восстановления выделения
             applicant_id = applicant_dict.get('id')
             id_to_row[applicant_id] = row
 
-            # Создаем элементы для ячеек
+            phone = applicant_dict.get('phone', '')
+            formatted_phone = self.format_phone_number(phone)
+
+            # Отображение категории
+            category = applicant_dict.get('category', '')
+            category_display = category_map.get(category, category)
+
+            # Статус
+            status = applicant_dict.get('status', '')
+            status_display = '✅ Поступает' if status == 'поступает' else '❌ Отказывается'
+
             items = [
-                QTableWidgetItem(str(applicant_id)),
-                QTableWidgetItem(applicant_dict.get('study_group', '')),
-                QTableWidgetItem(applicant_dict.get('rank', '')),
-                QTableWidgetItem(applicant_dict.get('student_name', '')),
+                QTableWidgetItem(str(applicant_id)),  # ID скрытый
+                QTableWidgetItem(applicant_dict.get('applicant_name', '')),
                 QTableWidgetItem(applicant_dict.get('region', '')),
                 QTableWidgetItem(applicant_dict.get('city', '')),
-                QTableWidgetItem(applicant_dict.get('category', '')),
-                QTableWidgetItem(applicant_dict.get('applicant_name', '')),
+                QTableWidgetItem(category_display),
                 QTableWidgetItem(formatted_phone),
-                QTableWidgetItem(applicant_dict.get('status', '')),
+                QTableWidgetItem(applicant_dict.get('education', '')),
+                QTableWidgetItem(status_display),
                 QTableWidgetItem(applicant_dict.get('document_status', '')),
+                QTableWidgetItem(applicant_dict.get('agitator_department', '')),
+                QTableWidgetItem(applicant_dict.get('agitator_name', '')),
             ]
 
-            # Цвет для статуса (колонка 9 - индекс 9)
-            status = applicant_dict.get('status', '').strip()
-            if '1)поступает' == status:
-                status_item = items[9]
-                status_item.setBackground(QColor(230, 255, 230))
-                status_item.setForeground(QColor(0, 100, 0))
-            elif '2)не поступает' == status:
-                status_item = items[9]
-                status_item.setBackground(QColor(255, 230, 230))
-                status_item.setForeground(QColor(150, 0, 0))
+            # Цветовая индикация
+            if status == 'поступает':
+                items[7].setBackground(QColor(230, 255, 230))
+                items[7].setForeground(QColor(0, 100, 0))
+            else:
+                items[7].setBackground(QColor(255, 230, 230))
+                items[7].setForeground(QColor(150, 0, 0))
 
-            # Цвет для пола (колонка 6 - индекс 6)
-            category = applicant_dict.get('category', '')
-            category_item = items[6]
-            if category == 'муж':
-                category_item.setBackground(QColor(230, 240, 255))
-            elif category == 'жен':
-                category_item.setBackground(QColor(255, 230, 240))
-            elif category == 'в/сл':
-                category_item.setBackground(QColor(230, 255, 230))
+            # Цвет для категории
+            if category == 'м':
+                items[4].setBackground(QColor(230, 240, 255))
+            elif category == 'ж':
+                items[4].setBackground(QColor(255, 230, 240))
+            elif category == 'всл':
+                items[4].setBackground(QColor(230, 255, 230))
 
-            # Проверяем пустые поля и подсвечиваем их
-            column_names = [
-                'ID', 'Уч. группа', 'Звание', 'ФИО студента',
-                'Регион', 'Город', 'Категория',
-                'ФИО абитуриента', 'Телефон', 'Статус', 'Документы'
-            ]
-
-            for col in range(len(items)):
-                cell_text = items[col].text().strip()
-                if not cell_text:
-                    items[col].setBackground(QColor(255, 255, 200))
-                    if col == 7:  # ФИО абитуриента
-                        items[col].setToolTip(f"Пустое поле: {column_names[col]}")
-
-            # Добавляем элементы в таблицу
+            # Подсветка пустых полей
             for col, item in enumerate(items):
+                if not item.text().strip() and col not in [0, 4]:  # ID и категория могут быть пустыми
+                    item.setBackground(QColor(255, 255, 200))
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)
 
         # Восстанавливаем выделение
         for applicant_id in selected_ids:
             if applicant_id in id_to_row:
-                row = id_to_row[applicant_id]
-                self.table.selectRow(row)
+                self.table.selectRow(id_to_row[applicant_id])
 
         self.table.resizeColumnsToContents()
-
-        # Включаем сигналы обратно
         self.table.blockSignals(False)
-
-        # Обновляем информацию о выделении
         self.on_selection_changed()
 
     def init_settings_tab(self):
@@ -1706,20 +2659,36 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, 'Ошибка', 'Не удалось добавить права доступа.')
 
+    # В классе MainWindow, обновляем методы add_applicant и edit_applicant:
+
     def add_applicant(self):
         """Добавление нового абитуриента"""
-        dialog = ApplicantDialog()
+        dialog = ApplicantDialog(
+            applicant_data=None,
+            user_role=self.user_data['role'],
+            db=self.db,
+            parent=self
+        )
         if dialog.exec():
             data = dialog.get_data()
 
-            # Проверка обязательных полей
+            # Проверка обязательных полей (дублируем для безопасности)
             if not data['applicant_name']:
                 QMessageBox.warning(self, 'Ошибка', 'ФИО абитуриента обязательно!')
                 return
 
+            if not data['agitator_name']:
+                QMessageBox.warning(self, 'Ошибка', 'ФИО агитатора обязательно!')
+                return
+
+            # Добавляем в БД
             self.db.add_applicant(self.user_data['id'], data)
+
+            # Обновляем таблицу и статистику
             self.refresh_data()
             self.stats_tab.update_statistics()
+
+            QMessageBox.information(self, 'Успех', 'Абитуриент успешно добавлен!')
 
     def edit_applicant(self):
         """Редактирование выбранного абитуриента"""
@@ -1736,12 +2705,18 @@ class MainWindow(QMainWindow):
         cursor.execute('SELECT * FROM applicants WHERE id = ?', (applicant_id,))
         applicant_data = dict(cursor.fetchone())
 
-        dialog = ApplicantDialog(applicant_data, self)
+        dialog = ApplicantDialog(
+            applicant_data=applicant_data,
+            user_role=self.user_data['role'],
+            db=self.db,
+            parent=self
+        )
         if dialog.exec():
             data = dialog.get_data()
             self.db.update_applicant(applicant_id, data)
             self.refresh_data()
             self.stats_tab.update_statistics()
+            QMessageBox.information(self, 'Успех', 'Данные абитуриента обновлены!')
 
     def delete_applicant(self):
         """Удаление выбранного абитуриента"""
