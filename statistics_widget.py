@@ -4,95 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QGridLayout, QSizePolicy)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
-
-
-class StatisticsCard(QFrame):
-    """Карточка статистики"""
-
-    def __init__(self, title, value, color, icon='', parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.value = value
-        self.color = color
-        self.icon = icon
-        self.init_ui()
-
-    def init_ui(self):
-        self.setFrameStyle(QFrame.Shape.StyledPanel)
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {self.color};
-                border-radius: 12px;
-                border: none;
-            }}
-            QFrame:hover {{
-                background-color: {self.lighten_color(self.color)};
-            }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-
-        # Заголовок с иконкой
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        if self.icon:
-            icon_label = QLabel(self.icon)
-            icon_label.setStyleSheet("font-size: 20px; color: white;")
-            header_layout.addWidget(icon_label)
-
-        title_label = QLabel(self.title)
-        title_label.setStyleSheet("""
-            color: white; 
-            font-size: 14px; 
-            font-weight: bold;
-        """)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-
-        layout.addLayout(header_layout)
-
-        # Значение
-        value_label = QLabel(str(self.value))
-        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        value_font = QFont()
-        value_font.setPointSize(32)
-        value_font.setBold(True)
-        value_label.setFont(value_font)
-        value_label.setStyleSheet("""
-            color: white;
-            padding: 10px 0;
-        """)
-
-        layout.addWidget(value_label)
-
-        # Процентная строка (если применимо)
-        if self.title in ['Поступают', 'Отказались'] and self.value != 0:
-            total = 100  # Временное значение, будет заменено
-            if total > 0:
-                percentage = (self.value / total) * 100
-                percent_label = QLabel(f"{percentage:.1f}%")
-                percent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                percent_label.setStyleSheet("""
-                    color: rgba(255, 255, 255, 0.9); 
-                    font-size: 13px;
-                    font-weight: bold;
-                """)
-                layout.addWidget(percent_label)
-
-        # Минимальный размер для карточки
-        self.setMinimumSize(180, 140)
-
-    def lighten_color(self, color):
-        """Осветление цвета"""
-        if color.startswith('#'):
-            r = min(255, int(color[1:3], 16) + 40)
-            g = min(255, int(color[3:5], 16) + 40)
-            b = min(255, int(color[5:7], 16) + 40)
-            return f'#{r:02x}{g:02x}{b:02x}'
-        return color
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QMessageBox
 
 
 class CourseSection(QFrame):
@@ -489,6 +401,189 @@ class EmptyStateWidget(QFrame):
         self.setMinimumHeight(300)
 
 
+
+class StatisticsCard(QFrame):
+    """Карточка статистики"""
+
+    def __init__(self, title, values, colors, parent=None):
+        super().__init__(parent)
+        self.title = title
+        self.values = values  # {'М': 10, 'Ж': 5, 'в/сл': 3}
+        self.colors = colors  # {'М': '#3498db', 'Ж': '#e67e22', 'в/сл': '#2ecc71'}
+        self.init_ui()
+
+    def init_ui(self):
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border-radius: 12px;
+                border: 1px solid #e0e0e0;
+            }
+            QFrame:hover {
+                background-color: #f8f9fa;
+                border-color: #3498db;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        # Заголовок
+        title_label = QLabel(self.title)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 5px;")
+        layout.addWidget(title_label)
+
+        # Разделитель
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("background-color: #ecf0f1;")
+        layout.addWidget(line)
+
+        # Значения
+        for key, value in self.values.items():
+            value_widget = QWidget()
+            value_layout = QHBoxLayout(value_widget)
+            value_layout.setContentsMargins(5, 2, 5, 2)
+
+            # Цветной индикатор
+            indicator = QLabel("●")
+            indicator.setStyleSheet(f"color: {self.colors.get(key, '#95a5a6')}; font-size: 14px;")
+
+            # Название
+            name_label = QLabel(key)
+            name_label.setStyleSheet("color: #7f8c8d; font-size: 13px;")
+
+            # Значение
+            value_label = QLabel(str(value))
+            value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            value_label.setStyleSheet("color: #2c3e50; font-size: 16px; font-weight: bold;")
+
+            value_layout.addWidget(indicator)
+            value_layout.addWidget(name_label)
+            value_layout.addStretch()
+            value_layout.addWidget(value_label)
+
+            layout.addWidget(value_widget)
+
+        # Итого
+        total = sum(self.values.values())
+        total_widget = QWidget()
+        total_layout = QHBoxLayout(total_widget)
+        total_layout.setContentsMargins(5, 8, 5, 5)
+
+        total_label = QLabel("ИТОГО:")
+        total_label.setStyleSheet("color: #2c3e50; font-weight: bold; font-size: 13px;")
+
+        total_value = QLabel(str(total))
+        total_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        total_value.setStyleSheet("color: #3498db; font-size: 16px; font-weight: bold;")
+
+        total_layout.addWidget(total_label)
+        total_layout.addStretch()
+        total_layout.addWidget(total_value)
+
+        layout.addWidget(total_widget)
+
+        self.setMinimumWidth(180)
+
+
+class PlanDialog(QDialog):
+    """Диалог для редактирования плана"""
+
+    def __init__(self, department_id, department_name, current_plan, year, db, parent=None):
+        super().__init__(parent)
+        self.department_id = department_id
+        self.department_name = department_name
+        self.current_plan = current_plan
+        self.year = year
+        self.db = db
+        self.setModal(True)
+        self.setWindowTitle(f"Редактирование плана - {department_name}")
+        self.setFixedSize(400, 300)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Заголовок
+        title = QLabel(f"📊 План набора на {self.year} год")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        # Форма
+        form_layout = QFormLayout()
+        form_layout.setSpacing(15)
+
+        # План по мужчинам
+        self.plan_m = QLabel()
+        self.plan_m_input = QLabel()
+        # Создаем спинбокс
+        from PyQt5.QtWidgets import QSpinBox
+        self.plan_m_spin = QSpinBox()
+        self.plan_m_spin.setRange(0, 1000)
+        self.plan_m_spin.setValue(self.current_plan.get('plan_m', 0))
+        form_layout.addRow("План по мужчинам (М):", self.plan_m_spin)
+
+        # План по женщинам
+        self.plan_f_spin = QSpinBox()
+        self.plan_f_spin.setRange(0, 1000)
+        self.plan_f_spin.setValue(self.current_plan.get('plan_f', 0))
+        form_layout.addRow("План по женщинам (Ж):", self.plan_f_spin)
+
+        # План по военнослужащим
+        self.plan_military_spin = QSpinBox()
+        self.plan_military_spin.setRange(0, 1000)
+        self.plan_military_spin.setValue(self.current_plan.get('plan_military', 0))
+        form_layout.addRow("План по военнослужащим (в/сл):", self.plan_military_spin)
+
+        layout.addLayout(form_layout)
+
+        # Кнопки
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.save_plan)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+
+    def save_plan(self):
+        """Сохранение плана"""
+        plan_data = {
+            'plan_m': self.plan_m_spin.value(),
+            'plan_f': self.plan_f_spin.value(),
+            'plan_military': self.plan_military_spin.value()
+        }
+
+        success = self.db.set_plan(
+            self.department_id,
+            self.year,
+            plan_data['plan_m'],
+            plan_data['plan_f'],
+            plan_data['plan_military']
+        )
+
+        if success:
+            QMessageBox.information(self, "Успех", "План успешно сохранен!")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось сохранить план!")
+
+
 class StatisticsWidget(QWidget):
     """Главный виджет статистики"""
 
@@ -497,6 +592,7 @@ class StatisticsWidget(QWidget):
         self.user_id = user_id
         self.role = role
         self.db = db
+        self.current_year = 2026  # Можно сделать выбор года
         self.init_ui()
 
     def init_ui(self):
@@ -510,7 +606,7 @@ class StatisticsWidget(QWidget):
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel("📊 Статистика")
+        title_label = QLabel("📊 Статистика по подразделениям")
         title_font = QFont()
         title_font.setPointSize(22)
         title_font.setBold(True)
@@ -520,19 +616,15 @@ class StatisticsWidget(QWidget):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
 
-        # Бейдж роли пользователя
-        role_badge = QLabel(f"👤 {self.role.capitalize()}")
-        role_badge.setStyleSheet("""
-            QLabel {
-                background-color: #ecf0f1;
-                color: #34495e;
-                border-radius: 15px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-        """)
-        title_layout.addWidget(role_badge)
+        # Выбор года
+        year_label = QLabel("Год:")
+        self.year_combo = QComboBox()
+        self.year_combo.addItems(["2024", "2025", "2026", "2027", "2028"])
+        self.year_combo.setCurrentText(str(self.current_year))
+        self.year_combo.currentTextChanged.connect(self.on_year_changed)
+
+        title_layout.addWidget(year_label)
+        title_layout.addWidget(self.year_combo)
 
         main_layout.addWidget(title_container)
 
@@ -550,58 +642,37 @@ class StatisticsWidget(QWidget):
         controls_layout = QHBoxLayout(controls_widget)
         controls_layout.setSpacing(15)
 
-        # Курс
-        course_label = QLabel("Курс:")
-        course_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        self.course_combo = QComboBox()
-        self.course_combo.setStyleSheet("""
+        # Подразделение
+        dept_label = QLabel("Подразделение:")
+        dept_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        self.department_combo = QComboBox()
+        self.department_combo.setStyleSheet("""
             QComboBox {
                 padding: 8px;
                 border: 1px solid #bdc3c7;
                 border-radius: 6px;
                 background-color: white;
-                min-width: 150px;
-            }
-            QComboBox:hover {
-                border-color: #3498db;
-            }
-            QComboBox:focus {
-                border-color: #2980b9;
+                min-width: 200px;
             }
         """)
+        self.load_departments()
 
-        if self.role == 'admin':
-            self.course_combo.addItems(['Все курсы', '1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
-        else:
-            # Для обычного пользователя только его курс
-            user_info = self.db.get_user_by_id(self.user_id)
-            user_course = user_info['course'] if user_info else '1 курс'
-            if user_course:
-                self.course_combo.addItems([user_course])
-            else:
-                self.course_combo.addItems(['1 курс'])
-            self.course_combo.setEnabled(False)
-
-        # Категория
-        category_label = QLabel("Категория:")
-        category_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        self.category_combo = QComboBox()
-        self.category_combo.setStyleSheet("""
-            QComboBox {
-                padding: 8px;
-                border: 1px solid #bdc3c7;
+        # Кнопка редактирования плана (только для админа или начальника)
+        self.edit_plan_btn = QPushButton("✏️ Редактировать план")
+        self.edit_plan_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
                 border-radius: 6px;
-                background-color: white;
-                min-width: 150px;
+                padding: 8px 16px;
+                font-weight: bold;
             }
-            QComboBox:hover {
-                border-color: #3498db;
-            }
-            QComboBox:focus {
-                border-color: #2980b9;
+            QPushButton:hover {
+                background-color: #e67e22;
             }
         """)
-        self.category_combo.addItems(['Все категории', 'муж', 'жен', 'в/сл'])
+        self.edit_plan_btn.clicked.connect(self.edit_plan)
 
         # Кнопка обновления
         self.refresh_btn = QPushButton("🔄 Обновить")
@@ -611,25 +682,19 @@ class StatisticsWidget(QWidget):
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 20px;
+                padding: 8px 20px;
                 font-weight: bold;
-                font-size: 13px;
             }
             QPushButton:hover {
                 background-color: #2980b9;
             }
-            QPushButton:pressed {
-                background-color: #1c6ea4;
-            }
         """)
         self.refresh_btn.clicked.connect(self.update_statistics)
 
-        # Добавляем элементы
-        controls_layout.addWidget(course_label)
-        controls_layout.addWidget(self.course_combo)
-        controls_layout.addWidget(category_label)
-        controls_layout.addWidget(self.category_combo)
+        controls_layout.addWidget(dept_label)
+        controls_layout.addWidget(self.department_combo)
         controls_layout.addStretch()
+        controls_layout.addWidget(self.edit_plan_btn)
         controls_layout.addWidget(self.refresh_btn)
 
         main_layout.addWidget(controls_widget)
@@ -641,19 +706,6 @@ class StatisticsWidget(QWidget):
             QScrollArea {
                 border: none;
                 background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background-color: #ecf0f1;
-                width: 12px;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #bdc3c7;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #95a5a6;
             }
         """)
 
@@ -687,6 +739,61 @@ class StatisticsWidget(QWidget):
         # Инициализация данных
         self.update_statistics()
 
+    def load_departments(self):
+        """Загрузка подразделений"""
+        self.department_combo.clear()
+
+        if self.role == 'admin':
+            # Админ видит все подразделения
+            departments = self.db.get_departments()
+            self.department_combo.addItem("Все подразделения")
+            for dept in departments:
+                self.department_combo.addItem(dept['name'])
+        else:
+            # Обычный пользователь видит только свое подразделение
+            user_info = self.db.get_user_by_id(self.user_id)
+            if user_info and user_info['department_id']:
+                cursor = self.db.conn.cursor()
+                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_info['department_id'],))
+                dept = cursor.fetchone()
+                if dept:
+                    self.department_combo.addItem(dept['name'])
+            else:
+                self.department_combo.addItem("Нет подразделения")
+            self.department_combo.setEnabled(False)
+            self.edit_plan_btn.setVisible(True)  # Начальник может редактировать план
+
+    def on_year_changed(self, year):
+        """Изменение года"""
+        self.current_year = int(year)
+        self.update_statistics()
+
+    def edit_plan(self):
+        """Редактирование плана"""
+        department_name = self.department_combo.currentText()
+        if department_name == "Все подразделения":
+            QMessageBox.warning(self, "Внимание", "Выберите конкретное подразделение для редактирования плана!")
+            return
+
+        # Получаем ID подразделения
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+        result = cursor.fetchone()
+
+        if not result:
+            QMessageBox.warning(self, "Ошибка", "Подразделение не найдено!")
+            return
+
+        department_id = result['id']
+
+        # Получаем текущий план
+        current_plan = self.db.get_plan(department_id, self.current_year)
+
+        # Открываем диалог редактирования
+        dialog = PlanDialog(department_id, department_name, current_plan, self.current_year, self.db, self)
+        if dialog.exec():
+            self.update_statistics()
+
     def update_statistics(self):
         """Обновление статистики"""
         # Очистка предыдущих данных
@@ -695,161 +802,144 @@ class StatisticsWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        selected_course = self.course_combo.currentText()
-        selected_category = self.category_combo.currentText()
+        department_name = self.department_combo.currentText()
 
-        # Получение данных из БД
-        if self.role == 'admin':
-            if selected_course != 'Все курсы':
-                # Показать статистику для конкретного курса
-                stats = self.db.get_statistics(self.user_id, self.role, selected_course)
-                self.display_course_stats(selected_course, stats, selected_category)
-            else:
-                # Показать общую статистику и по всем курсам
-                self.display_total_statistics(selected_category)
+        if department_name == "Все подразделения":
+            self.display_all_departments_stats()
         else:
-            # Для обычного пользователя
-            user_info = self.db.get_user_by_id(self.user_id)
-            user_course = user_info['course'] if user_info else '1 курс'
-            stats = self.db.get_statistics(self.user_id, self.role, user_course)
-            self.display_course_stats(user_course, stats, selected_category)
+            self.display_department_stats(department_name)
 
         # Добавляем растягивающийся элемент
         self.scroll_layout.addStretch()
 
-    def display_total_statistics(self, category_filter):
-        """Отображение общей статистики и по всем курсам (только для админа)"""
-        # Получаем общую статистику по всем курсам
-        all_stats = self.calculate_total_statistics()
+    def display_all_departments_stats(self):
+        """Отображение статистики по всем подразделениям"""
+        departments = self.db.get_departments()
 
-        if all_stats['total'] > 0:
-            # Показываем общую статистику
-            total_section = TotalStatisticsSection(all_stats)
-            self.scroll_layout.addWidget(total_section)
+        for dept in departments:
+            self.display_department_stats(dept['name'])
 
-            # Получаем статистику по каждому курсу
-            courses = ['1 курс', '2 курс', '3 курс', '4 курс', '5 курс']
-            has_course_data = False
+        if not departments:
+            empty_widget = self.create_empty_widget("Нет данных по подразделениям")
+            self.scroll_layout.addWidget(empty_widget)
 
-            for course in courses:
-                stats = self.db.get_statistics(self.user_id, 'admin', course)
-                if stats and stats[0]['total'] > 0:
-                    has_course_data = True
-                    for stat in stats:
-                        stats_dict = self.filter_by_category(dict(stat), category_filter)
-                        section = CourseSection(course, stats_dict)
-                        self.scroll_layout.addWidget(section)
+    def display_department_stats(self, department_name):
+        """Отображение статистики по одному подразделению"""
+        # Получаем статистику из БД
+        stats = self.db.get_statistics_by_department(department_name)
 
-            if not has_course_data:
-                empty_state = EmptyStateWidget("Нет данных по отдельным курсам")
-                self.scroll_layout.addWidget(empty_state)
-
-            # Обновляем информационную панель
-            self.info_label.setText("📊 Отображается общая статистика по всем курсам")
-            self.info_panel.setVisible(True)
-        else:
-            empty_state = EmptyStateWidget("Нет данных для отображения статистики")
-            self.scroll_layout.addWidget(empty_state)
-            self.info_panel.setVisible(False)
-
-    def calculate_total_statistics(self):
-        """Вычисление общей статистики по всем курсам"""
+        # Получаем план
         cursor = self.db.conn.cursor()
-
-        cursor.execute('''
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN status = '1)поступает' THEN 1 END) as applying,
-                COUNT(CASE WHEN status = '2)не поступает' THEN 1 END) as refused,
-                COUNT(CASE WHEN category = 'муж' THEN 1 END) as male,
-                COUNT(CASE WHEN category = 'жен' THEN 1 END) as female,
-                COUNT(CASE WHEN category = 'в/сл' THEN 1 END) as military,
-                COUNT(CASE WHEN document_status = '1)Формируется в военкомате' THEN 1 END) as doc1,
-                COUNT(CASE WHEN document_status = '2)Отправлено в ВА ВКО' THEN 1 END) as doc2,
-                COUNT(CASE WHEN document_status = '3)В ВА ВКО' THEN 1 END) as doc3
-            FROM applicants
-        ''')
-
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
         result = cursor.fetchone()
+
+        plan = {'plan_m': 0, 'plan_f': 0, 'plan_military': 0}
         if result:
-            return dict(result)
-        return {
-            'total': 0,
-            'applying': 0,
-            'refused': 0,
-            'male': 0,
-            'female': 0,
-            'military': 0,
-            'doc1': 0,
-            'doc2': 0,
-            'doc3': 0
+            plan = self.db.get_plan(result['id'], self.current_year)
+
+        # Создаем карточки
+        cards_widget = QWidget()
+        cards_layout = QGridLayout(cards_widget)
+        cards_layout.setSpacing(15)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Цвета для категорий
+        colors = {
+            'М': '#3498db',
+            'Ж': '#e67e22',
+            'в/сл': '#2ecc71'
         }
 
-    def display_course_stats(self, course_name, stats, category_filter):
-        """Отображение статистики по одному курсу"""
-        if stats and stats[0]['total'] > 0:
-            for stat in stats:
-                stats_dict = self.filter_by_category(dict(stat), category_filter)
-                section_title = f"{course_name}"
-                if stats_dict.get('faculty'):
-                    section_title = f"{course_name} - {stats_dict['faculty']}"
-                section = CourseSection(section_title, stats_dict)
-                self.scroll_layout.addWidget(section)
+        # 1. Блок "План"
+        plan_values = {
+            'М': plan['plan_m'],
+            'Ж': plan['plan_f'],
+            'в/сл': plan['plan_military']
+        }
+        plan_card = StatisticsCard("📋 ПЛАН", plan_values, colors)
+        cards_layout.addWidget(plan_card, 0, 0)
 
-            # Обновляем информационную панель
-            self.info_label.setText(f"📊 Отображается статистика по курсу: {course_name}")
-            self.info_panel.setVisible(True)
-        else:
-            empty_state = EmptyStateWidget(f"Нет данных для курса '{course_name}'")
-            self.scroll_layout.addWidget(empty_state)
-            self.info_panel.setVisible(False)
+        # 2. Блок "Поступают"
+        applying_values = {
+            'М': stats['applying_vk'] + stats['applying_ok'] + stats['applying_vavko'],
+            'Ж': 0,  # Нужно добавить в БД разделение по полу для поступающих
+            'в/сл': 0
+        }
+        # TODO: Добавить в БД разделение по полу для статусов документов
+        # Пока используем общее количество
+        total_applying = stats['applying_vk'] + stats['applying_ok'] + stats['applying_vavko']
+        applying_values = {
+            'М': total_applying,
+            'Ж': 0,
+            'в/сл': 0
+        }
+        applying_card = StatisticsCard("✅ ПОСТУПАЮТ", applying_values, colors)
+        cards_layout.addWidget(applying_card, 0, 1)
 
-    def display_all_courses_stats(self, category_filter, faculty_filter=None):
-        """Отображение статистики по всем курсам (старый метод, оставлен для совместимости)"""
-        stats = self.db.get_statistics(self.user_id, 'admin', None, faculty_filter)
-        has_data = False
+        # 3. Блок "Дело в ВК"
+        vk_values = {
+            'М': stats['applying_vk'],
+            'Ж': 0,
+            'в/сл': 0
+        }
+        vk_card = StatisticsCard("📄 ДЕЛО В ВК", vk_values, colors)
+        cards_layout.addWidget(vk_card, 0, 2)
 
-        if stats:
-            for stat in stats:
-                stat_dict = dict(stat)
-                if stat_dict['total'] > 0:
-                    has_data = True
-                    stats_dict = self.filter_by_category(stat_dict, category_filter)
-                    section_title = f"{stat_dict['course']}"
-                    if stat_dict.get('faculty'):
-                        section_title = f"{stat_dict['course']} - {stat_dict['faculty']}"
-                    section = CourseSection(section_title, stats_dict)
-                    self.scroll_layout.addWidget(section)
+        # 4. Блок "Дело в ОК"
+        ok_values = {
+            'М': stats['applying_ok'],
+            'Ж': 0,
+            'в/сл': 0
+        }
+        ok_card = StatisticsCard("📋 ДЕЛО В ОК", ok_values, colors)
+        cards_layout.addWidget(ok_card, 0, 3)
 
-        if has_data:
-            self.info_label.setText(f"📊 Отображается статистика по всем курсам")
-            self.info_panel.setVisible(True)
-        else:
-            faculty_text = ""
-            empty_state = EmptyStateWidget(f"Нет данных ни по одному курсу {faculty_text}")
-            self.scroll_layout.addWidget(empty_state)
-            self.info_panel.setVisible(False)
+        # Добавляем название подразделения
+        dept_header = QLabel(f"🏢 {department_name}")
+        dept_header.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 10px;
+                background-color: #ecf0f1;
+                border-radius: 8px;
+            }
+        """)
 
-    def filter_by_category(self, stats_dict, category):
-        """Фильтрация статистики по категории"""
-        if category == 'Все категории':
-            return stats_dict
+        # Собираем все в контейнер
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(10)
+        container_layout.addWidget(dept_header)
+        container_layout.addWidget(cards_widget)
 
-        filtered = stats_dict.copy()
+        self.scroll_layout.addWidget(container)
 
-        if category == 'муж':
-            filtered['male'] = filtered.get('male', 0)
-            filtered['female'] = 0
-            filtered['military'] = 0
-        elif category == 'жен':
-            filtered['male'] = 0
-            filtered['female'] = filtered.get('female', 0)
-            filtered['military'] = 0
-        elif category == 'в/сл':
-            filtered['male'] = 0
-            filtered['female'] = 0
-            filtered['military'] = filtered.get('military', 0)
+    def create_empty_widget(self, message):
+        """Создание виджета для пустого состояния"""
+        from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel
+        widget = QFrame()
+        widget.setFrameStyle(QFrame.Shape.NoFrame)
 
-        filtered['total'] = filtered['male'] + filtered['female'] + filtered['military']
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        return filtered
+        icon_label = QLabel("📊")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_font = QFont()
+        icon_font.setPointSize(48)
+        icon_label.setFont(icon_font)
+        icon_label.setStyleSheet("color: #bdc3c7; margin-bottom: 20px;")
+
+        message_label = QLabel(message)
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_label.setStyleSheet("color: #7f8c8d; font-size: 16px;")
+
+        layout.addStretch()
+        layout.addWidget(icon_label)
+        layout.addWidget(message_label)
+        layout.addStretch()
+
+        widget.setMinimumHeight(300)
+        return widget

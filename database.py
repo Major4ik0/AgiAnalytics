@@ -130,16 +130,19 @@ class Database:
 
         # Добавляем начальные данные
         self.init_default_data()
+        self.clean_duplicate_departments()
 
         self.conn.commit()
 
     def init_default_data(self):
-        """Инициализация начальных данных"""
+        """Инициализация начальных данных (только если таблицы пустые)"""
         cursor = self.conn.cursor()
 
-        # Добавляем администратора по умолчанию
-        cursor.execute('SELECT * FROM users WHERE username = ?', ('admin',))
-        if not cursor.fetchone():
+        # Добавляем администратора по умолчанию (только если нет ни одного пользователя)
+        cursor.execute('SELECT COUNT(*) as count FROM users')
+        user_count = cursor.fetchone()['count']
+
+        if user_count == 0:
             cursor.execute(
                 'INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
                 ('admin', 'admin', 'Администратор системы', 'admin')
@@ -148,38 +151,75 @@ class Database:
 
             # Создаем главное подразделение для админа
             cursor.execute(
-                'INSERT INTO departments (name, type, head_user_id) VALUES (?, ?, ?)',
+                'INSERT OR IGNORE INTO departments (name, type, head_user_id) VALUES (?, ?, ?)',
                 ('Все подразделения', 'root', admin_id)
             )
 
-        # Добавляем варианты образования
-        education_defaults = ['СОШ', 'СПО', 'СВУ', 'ПКУ', 'КК']
-        for i, edu in enumerate(education_defaults):
-            cursor.execute(
-                'INSERT OR IGNORE INTO education_types (name, sort_order) VALUES (?, ?)',
-                (edu, i)
-            )
+        # Добавляем варианты образования (только если таблица пустая)
+        cursor.execute('SELECT COUNT(*) as count FROM education_types')
+        edu_count = cursor.fetchone()['count']
 
-        # Добавляем статусы документов
-        document_defaults = ['ВК', 'ОК', 'ВА ВКО']
-        for i, doc in enumerate(document_defaults):
-            cursor.execute(
-                'INSERT OR IGNORE INTO document_statuses (name, sort_order) VALUES (?, ?)',
-                (doc, i)
-            )
+        if edu_count == 0:
+            education_defaults = ['СОШ', 'СПО', 'СВУ', 'ПКУ', 'КК']
+            for i, edu in enumerate(education_defaults):
+                cursor.execute(
+                    'INSERT INTO education_types (name, sort_order) VALUES (?, ?)',
+                    (edu, i)
+                )
 
-        # Добавляем примерные подразделения
-        departments = [
-            ('Факультет 1', 'faculty'),
-            ('Факультет 2', 'faculty'),
-            ('Кафедра 1', 'department'),
-            ('Кафедра 2', 'department'),
-        ]
-        for name, dept_type in departments:
-            cursor.execute(
-                'INSERT OR IGNORE INTO departments (name, type) VALUES (?, ?)',
-                (name, dept_type)
-            )
+        # Добавляем статусы документов (только если таблица пустая)
+        cursor.execute('SELECT COUNT(*) as count FROM document_statuses')
+        doc_count = cursor.fetchone()['count']
+
+        if doc_count == 0:
+            document_defaults = ['ВК', 'ОК', 'ВА ВКО']
+            for i, doc in enumerate(document_defaults):
+                cursor.execute(
+                    'INSERT INTO document_statuses (name, sort_order) VALUES (?, ?)',
+                    (doc, i)
+                )
+
+        # Добавляем примерные подразделения (только если таблица пустая)
+        cursor.execute('SELECT COUNT(*) as count FROM departments WHERE type != "root"')
+        dept_count = cursor.fetchone()['count']
+
+        if dept_count == 0:
+            departments = [
+                ('Факультет 1', 'faculty'),
+                ('Факультет 2', 'faculty'),
+                ('Кафедра 1', 'department'),
+                ('Кафедра 2', 'department'),
+            ]
+            for name, dept_type in departments:
+                cursor.execute(
+                    'INSERT INTO departments (name, type) VALUES (?, ?)',
+                    (name, dept_type)
+                )
+
+    def clean_duplicate_departments(self):
+        """Очистка дублирующихся подразделений"""
+        cursor = self.conn.cursor()
+
+        # Находим дубликаты
+        cursor.execute('''
+            SELECT name, MIN(id) as keep_id, COUNT(*) as cnt
+            FROM departments
+            WHERE type != 'root'
+            GROUP BY name
+            HAVING cnt > 1
+        ''')
+
+        duplicates = cursor.fetchall()
+
+        for dup in duplicates:
+            name = dup['name']
+            keep_id = dup['keep_id']
+
+            # Удаляем дубликаты, оставляя один
+            cursor.execute('DELETE FROM departments WHERE name = ? AND id != ?', (name, keep_id))
+
+        self.conn.commit()
+        print(f"Очищено дубликатов подразделений: {len(duplicates)}")
 
     # ==================== РАБОТА С АБИТУРИЕНТАМИ ====================
 
@@ -395,9 +435,9 @@ class Database:
         return cursor.rowcount > 0
 
     def get_departments(self):
-        """Получение списка подразделений"""
+        """Получение списка подразделений (уникальные)"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id, name, type FROM departments WHERE type != "root" ORDER BY name')
+        cursor.execute('SELECT DISTINCT id, name, type FROM departments WHERE type != "root" ORDER BY name')
         return cursor.fetchall()
 
     def add_department(self, name, dept_type='department', parent_id=None):
@@ -476,18 +516,40 @@ class Database:
     # ==================== СТАТИСТИКА ====================
 
     def get_statistics_by_department(self, department_name=None):
-        """Получение статистики по подразделению"""
+        """Получение статистики по подразделению с разделением по полу"""
         cursor = self.conn.cursor()
 
         query = '''
             SELECT 
-                COUNT(CASE WHEN category = 'м' THEN 1 END) as male_count,
-                COUNT(CASE WHEN category = 'ж' THEN 1 END) as female_count,
-                COUNT(CASE WHEN category = 'всл' THEN 1 END) as military_count,
+                -- Поступают по статусам документов
                 COUNT(CASE WHEN status = 'поступает' AND document_status = 'ВК' THEN 1 END) as applying_vk,
                 COUNT(CASE WHEN status = 'поступает' AND document_status = 'ОК' THEN 1 END) as applying_ok,
                 COUNT(CASE WHEN status = 'поступает' AND document_status = 'ВА ВКО' THEN 1 END) as applying_vavko,
-                COUNT(CASE WHEN status = 'отказывается' THEN 1 END) as refused,
+
+                -- Поступают по полу
+                COUNT(CASE WHEN status = 'поступает' AND category = 'м' THEN 1 END) as applying_male,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'ж' THEN 1 END) as applying_female,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'всл' THEN 1 END) as applying_military,
+
+                -- Отказались по полу
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'м' THEN 1 END) as refused_male,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'ж' THEN 1 END) as refused_female,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'всл' THEN 1 END) as refused_military,
+
+                -- Документы по полу
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'м' THEN 1 END) as vk_male,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'ж' THEN 1 END) as vk_female,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'всл' THEN 1 END) as vk_military,
+
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'м' THEN 1 END) as ok_male,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'ж' THEN 1 END) as ok_female,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'всл' THEN 1 END) as ok_military,
+
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'м' THEN 1 END) as vavko_male,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'ж' THEN 1 END) as vavko_female,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'всл' THEN 1 END) as vavko_military,
+
+                -- Общее количество
                 COUNT(*) as total
             FROM applicants
             WHERE 1=1
@@ -504,13 +566,24 @@ class Database:
         if result:
             return dict(result)
         return {
-            'male_count': 0,
-            'female_count': 0,
-            'military_count': 0,
             'applying_vk': 0,
             'applying_ok': 0,
             'applying_vavko': 0,
-            'refused': 0,
+            'applying_male': 0,
+            'applying_female': 0,
+            'applying_military': 0,
+            'refused_male': 0,
+            'refused_female': 0,
+            'refused_military': 0,
+            'vk_male': 0,
+            'vk_female': 0,
+            'vk_military': 0,
+            'ok_male': 0,
+            'ok_female': 0,
+            'ok_military': 0,
+            'vavko_male': 0,
+            'vavko_female': 0,
+            'vavko_military': 0,
             'total': 0
         }
 

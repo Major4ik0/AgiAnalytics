@@ -470,29 +470,14 @@ class ApplicantDialog(QDialog):
     def load_departments(self):
         """Загрузка подразделений из БД (без дублей)"""
         if self.db:
-            departments = self.db.get_departments()
-            self.agitator_department.clear()
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT DISTINCT name FROM departments WHERE type != "root" ORDER BY name')
+            departments = [row['name'] for row in cursor.fetchall()]
 
-            # Используем set для уникальности
-            unique_departments = set()
-            for dept in departments:
-                unique_departments.add(dept['name'])
-
-            # Добавляем "Выберите подразделение" первым
-            self.agitator_department.addItem("")
-
-            # Добавляем уникальные подразделения
-            for dept_name in sorted(unique_departments):
-                self.agitator_department.addItem(dept_name)
-        else:
-            # Данные по умолчанию
-            self.agitator_department.addItems([
-                "",
-                "Факультет 1",
-                "Факультет 2",
-                "Кафедра 1",
-                "Кафедра 2"
-            ])
+            self.department.clear()
+            self.department.addItem("")
+            for dept_name in departments:
+                self.department.addItem(dept_name)
 
     def on_agitator_type_changed(self):
         """Обработка изменения типа агитатора"""
@@ -749,14 +734,6 @@ class ApplicantDialog(QDialog):
         return data
 
 
-# -*- coding: utf-8 -*-
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-                             QLineEdit, QComboBox, QPushButton, QLabel,
-                             QDialogButtonBox, QGroupBox, QCheckBox, QWidget,
-                             QScrollArea, QGridLayout)
-from PyQt5.QtCore import Qt
-
-
 class AdvancedSearchDialog(QDialog):
     """Диалог расширенного поиска"""
 
@@ -823,8 +800,6 @@ class AdvancedSearchDialog(QDialog):
         # Субъект РФ
         self.region = QComboBox()
         self.region.setEditable(True)
-        self.region.setPlaceholderText("Выберите или введите субъект РФ")
-        self.region.setClearButtonEnabled(True)
         self.load_regions()
         applicant_layout.addRow("Субъект РФ:", self.region)
 
@@ -896,8 +871,6 @@ class AdvancedSearchDialog(QDialog):
         # Подразделение
         self.agitator_department = QComboBox()
         self.agitator_department.setEditable(True)
-        self.agitator_department.setPlaceholderText("Выберите или введите подразделение")
-        self.agitator_department.setClearButtonEnabled(True)
         self.load_departments()
         agitator_layout.addRow("Подразделение:", self.agitator_department)
 
@@ -934,7 +907,6 @@ class AdvancedSearchDialog(QDialog):
         extra_layout.addWidget(QLabel("Документы:"), 0, 0)
         self.document_status = QComboBox()
         self.document_status.setEditable(True)
-        self.document_status.setClearButtonEnabled(True)
         self.load_document_statuses()
         extra_layout.addWidget(self.document_status, 0, 1)
 
@@ -1005,6 +977,7 @@ class AdvancedSearchDialog(QDialog):
 
         layout.addWidget(button_box)
 
+
     def load_regions(self):
         """Загрузка субъектов РФ (уникальные из БД)"""
         if self.db:
@@ -1028,9 +1001,11 @@ class AdvancedSearchDialog(QDialog):
             cursor.execute(
                 'SELECT DISTINCT agitator_department FROM applicants WHERE agitator_department IS NOT NULL AND agitator_department != "" ORDER BY agitator_department')
             departments = [row['agitator_department'] for row in cursor.fetchall()]
+            self.agitator_department.clear()
+            self.agitator_department.addItem("")
             self.agitator_department.addItems(departments)
         else:
-            self.agitator_department.addItems(["Факультет 1", "Факультет 2", "Кафедра 1", "Кафедра 2"])
+            self.agitator_department.addItems(["", "Факультет 1", "Факультет 2", "Кафедра 1", "Кафедра 2"])
 
     def get_education_types(self):
         """Получение типов образования"""
@@ -1351,100 +1326,476 @@ class SelectionStatsDialog(QDialog):
 class UserDialog(QDialog):
     """Диалог добавления/редактирования пользователя"""
 
-    def __init__(self, user_data=None, parent=None):
+    def __init__(self, user_data=None, db=None, parent=None):
         super().__init__(parent)
         self.user_data = user_data
+        self.db = db
         self.setModal(True)
 
         if user_data:
-            self.setWindowTitle('Редактировать пользователя')
+            self.setWindowTitle('✏️ Редактировать пользователя')
         else:
-            self.setWindowTitle('Добавить пользователя')
+            self.setWindowTitle('➕ Добавить пользователя')
 
-        self.setFixedSize(500, 400)
-        self.set_application_icon()
+        self.setMinimumSize(600, 700)
+        self.setMaximumSize(800, 800)
         self.init_ui()
 
-    def set_application_icon(self):
-        """Установка иконки приложения в зависимости от платформы"""
-        try:
-            if sys.platform == "darwin":  # macOS
-                # Для macOS можно попробовать .png или .icns
-                icon_path = resource_path('icons/icon.png')
-            elif sys.platform == "win32":  # Windows
-                icon_path = resource_path('icons/icon.ico')
-            else:  # Linux
-                icon_path = resource_path('icons/icon.png')
-
-            if os.path.exists(icon_path):
-                self.setWindowIcon(QIcon(icon_path))
-                # Также установить иконку для всего приложения
-                app = QApplication.instance()
-                if app:
-                    app.setWindowIcon(QIcon(icon_path))
-            else:
-                print(f"Иконка не найдена: {icon_path}")
-
-        except Exception as e:
-            print(f"Ошибка при установке иконки: {e}")
-
     def init_ui(self):
-        layout = QVBoxLayout()
+        """Инициализация интерфейса"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
 
-        form_layout = QFormLayout()
+        # Заголовок
+        title_label = QLabel("Управление пользователем")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
+        main_layout.addWidget(title_label)
 
-        # Поля формы
+        # Скролл область
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; }")
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(20)
+
+        # ========== БЛОК 1: ОСНОВНАЯ ИНФОРМАЦИЯ ==========
+        main_group = QGroupBox("🔐 Основная информация")
+        main_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid #3498db;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #3498db;
+            }
+        """)
+
+        main_form = QFormLayout()
+        main_form.setSpacing(12)
+        main_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Логин
         self.username = QLineEdit()
+        self.username.setPlaceholderText("Введите логин")
+        self.username.setMinimumHeight(35)
+        main_form.addRow("Логин *:", self.username)
+
+        # Пароль
         self.password = QLineEdit()
+        self.password.setPlaceholderText("Введите пароль")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setMinimumHeight(35)
+        main_form.addRow("Пароль *:", self.password)
+
+        # Подтверждение пароля (только для нового пользователя)
+        if not self.user_data:
+            self.confirm_password = QLineEdit()
+            self.confirm_password.setPlaceholderText("Повторите пароль")
+            self.confirm_password.setEchoMode(QLineEdit.EchoMode.Password)
+            self.confirm_password.setMinimumHeight(35)
+            main_form.addRow("Подтверждение пароля *:", self.confirm_password)
+
+        # ФИО
         self.full_name = QLineEdit()
+        self.full_name.setPlaceholderText("Иванов Иван Иванович")
+        self.full_name.setMinimumHeight(35)
+        main_form.addRow("ФИО *:", self.full_name)
 
+        # Роль
         self.role = QComboBox()
-        self.role.addItems(['admin', 'user'])
+        self.role.addItems(["user", "admin"])
+        self.role.setItemText(0, "Пользователь")
+        self.role.setItemText(1, "Администратор")
+        self.role.setMinimumHeight(35)
+        self.role.currentTextChanged.connect(self.on_role_changed)
+        main_form.addRow("Роль:", self.role)
 
-        self.course = QComboBox()
-        self.course.addItems(['', '1 курс', '2 курс', '3 курс', '4 курс', '5 курс'])
+        main_group.setLayout(main_form)
+        scroll_layout.addWidget(main_group)
 
-        # Добавление полей в форму
-        form_layout.addRow('Логин:', self.username)
-        form_layout.addRow('Пароль:', self.password)
-        form_layout.addRow('ФИО:', self.full_name)
-        form_layout.addRow('Роль:', self.role)
-        form_layout.addRow('Курс (опционально):', self.course)
-        # form_layout.addRow('Факультет (опционально):', self.faculty)
+        # ========== БЛОК 2: ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ==========
+        info_group = QGroupBox("👤 Личная информация")
+        info_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid #2ecc71;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #2ecc71;
+            }
+        """)
 
-        # Заполнение данных если редактирование
-        if self.user_data:
-            self.username.setText(self.user_data.get('username', ''))
-            self.password.setText(self.user_data.get('password', ''))
-            self.full_name.setText(self.user_data.get('full_name', ''))
-            self.role.setCurrentText(self.user_data.get('role', 'user'))
-            self.course.setCurrentText(self.user_data.get('course', ''))
-            # self.faculty.setText(self.user_data.get('faculty', ''))
+        info_form = QFormLayout()
+        info_form.setSpacing(12)
+        info_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        layout.addLayout(form_layout)
+        # Подразделение
+        self.department = QComboBox()
+        self.department.setEditable(True)
+        self.department.setMinimumHeight(35)
+        self.load_departments()
+        info_form.addRow("Подразделение:", self.department)
+
+        # Должность
+        self.position = QComboBox()
+        self.position.addItems([
+            "Рядовой состав",
+            "Сержантский состав",
+            "Прапорщики",
+            "Младший офицерский состав",
+            "Старший офицерский состав",
+            "Высший офицерский состав",
+            "Гражданский персонал"
+        ])
+        self.position.setEditable(True)
+        self.position.setMinimumHeight(35)
+        info_form.addRow("Должность:", self.position)
+
+        # Звание
+        self.rank = QComboBox()
+        self.rank.addItems([
+            "ряд.", "ефр.", "мл. серж.", "серж.", "ст. серж.", "старшина",
+            "прапорщик", "ст. прапорщик", "мл. лейт.", "лейтенант", "ст. лейтенант",
+            "капитан", "майор", "подполковник", "полковник", "генерал-майор",
+            "генерал-лейтенант", "генерал-полковник"
+        ])
+        self.rank.setEditable(True)
+        self.rank.setMinimumHeight(35)
+        info_form.addRow("Звание:", self.rank)
+
+        info_group.setLayout(info_form)
+        scroll_layout.addWidget(info_group)
+
+        # ========== БЛОК 3: ПРАВА ДОСТУПА (только для обычных пользователей) ==========
+        self.permissions_group = QGroupBox("🔒 Права доступа к подразделениям")
+        self.permissions_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid #e67e22;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #e67e22;
+            }
+        """)
+
+        permissions_layout = QVBoxLayout()
+
+        # Пояснение
+        info_label = QLabel("Выберите подразделения, к которым пользователь будет иметь доступ:")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #7f8c8d; font-size: 11px; margin-bottom: 10px;")
+        permissions_layout.addWidget(info_label)
+
+        # Чекбоксы для подразделений
+        self.permissions_widget = QWidget()
+        self.permissions_grid = QGridLayout(self.permissions_widget)
+        self.permissions_grid.setSpacing(10)
+        self.permission_checkboxes = []
+
+        # Кнопки быстрого выбора
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+
+        self.select_all_btn = QPushButton("✅ Выбрать все")
+        self.select_all_btn.clicked.connect(self.select_all_permissions)
+        self.select_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+                font-size: 11px;
+            }
+        """)
+
+        self.clear_all_btn = QPushButton("❌ Снять все")
+        self.clear_all_btn.clicked.connect(self.clear_all_permissions)
+        self.clear_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+                font-size: 11px;
+            }
+        """)
+
+        buttons_layout.addWidget(self.select_all_btn)
+        buttons_layout.addWidget(self.clear_all_btn)
+        buttons_layout.addStretch()
+
+        permissions_layout.addWidget(buttons_widget)
+        permissions_layout.addWidget(self.permissions_widget)
+
+        self.permissions_group.setLayout(permissions_layout)
+        scroll_layout.addWidget(self.permissions_group)
+
+        # Скрываем блок прав для администратора
+        self.permissions_group.setVisible(self.role.currentText() != "admin")
+
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(scroll_area)
+
+        # Информация об обязательных полях
+        required_label = QLabel("* - поля, обязательные для заполнения")
+        required_label.setStyleSheet("color: #e74c3c; font-size: 11px; margin-top: 5px;")
+        main_layout.addWidget(required_label)
 
         # Кнопки
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
 
-        self.setLayout(layout)
+        ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setText("💾 Сохранить")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-weight: bold;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
+
+        cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_button.setText("❌ Отмена")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
+                font-weight: bold;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #7f8c8d;
+            }
+        """)
+
+        button_box.accepted.connect(self.validate_and_accept)
+        button_box.rejected.connect(self.reject)
+
+        main_layout.addWidget(button_box)
+
+        # Заполнение данных при редактировании
+        if self.user_data:
+            self.load_user_data()
+
+        # Загружаем права доступа
+        self.load_permissions()
+
+    def load_departments(self):
+        """Загрузка подразделений из БД"""
+        if self.db:
+            departments = self.db.get_departments()
+            self.department.clear()
+            self.department.addItem("")
+            for dept in departments:
+                self.department.addItem(dept['name'])
+
+    def load_permissions(self):
+        """Загрузка чекбоксов для прав доступа (без дублей)"""
+        # Очищаем существующие чекбоксы
+        for checkbox in self.permission_checkboxes:
+            checkbox.deleteLater()
+        self.permission_checkboxes.clear()
+
+        # Очищаем сетку
+        while self.permissions_grid.count():
+            item = self.permissions_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Получаем уникальные подразделения из БД
+        departments = []
+        if self.db:
+            cursor = self.db.conn.cursor()
+            # Используем DISTINCT для уникальных названий
+            cursor.execute('SELECT DISTINCT name FROM departments WHERE type != "root" ORDER BY name')
+            departments = [row['name'] for row in cursor.fetchall()]
+
+        # Если нет подразделений, добавляем сообщение
+        if not departments:
+            info_label = QLabel("Нет доступных подразделений. Создайте их в настройках.")
+            info_label.setStyleSheet("color: #e74c3c; font-style: italic;")
+            self.permissions_grid.addWidget(info_label, 0, 0)
+            return
+
+        # Создаем чекбоксы (без дублей)
+        row = 0
+        col = 0
+        for dept in departments:
+            checkbox = QCheckBox(dept)
+            self.permission_checkboxes.append(checkbox)
+            self.permissions_grid.addWidget(checkbox, row, col)
+
+            col += 1
+            if col >= 3:  # 3 колонки
+                col = 0
+                row += 1
+
+    def on_role_changed(self, role):
+        """Обработка изменения роли"""
+        is_admin = (role == "admin")
+        self.permissions_group.setVisible(not is_admin)
+
+    def select_all_permissions(self):
+        """Выбрать все права"""
+        for checkbox in self.permission_checkboxes:
+            checkbox.setChecked(True)
+
+    def clear_all_permissions(self):
+        """Снять все права"""
+        for checkbox in self.permission_checkboxes:
+            checkbox.setChecked(False)
+
+    def validate_and_accept(self):
+        """Валидация данных перед сохранением"""
+        errors = []
+
+        # Проверка обязательных полей
+        if not self.username.text().strip():
+            errors.append("Логин")
+            self.username.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.username.setStyleSheet("")
+
+        if not self.password.text().strip():
+            errors.append("Пароль")
+            self.password.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.password.setStyleSheet("")
+
+        # Проверка подтверждения пароля для нового пользователя
+        if not self.user_data:
+            if self.password.text() != self.confirm_password.text():
+                errors.append("Пароли не совпадают")
+                self.password.setStyleSheet("border: 2px solid #e74c3c;")
+                self.confirm_password.setStyleSheet("border: 2px solid #e74c3c;")
+            else:
+                self.confirm_password.setStyleSheet("")
+
+        if not self.full_name.text().strip():
+            errors.append("ФИО")
+            self.full_name.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.full_name.setStyleSheet("")
+
+        if errors:
+            error_msg = "Пожалуйста, заполните следующие обязательные поля:\n• " + "\n• ".join(errors)
+            QMessageBox.warning(self, "Ошибка валидации", error_msg)
+            return
+
+        self.accept()
+
+    def load_user_data(self):
+        """Загрузка данных пользователя для редактирования"""
+        self.username.setText(self.user_data.get('username', ''))
+        self.full_name.setText(self.user_data.get('full_name', ''))
+
+        role = self.user_data.get('role', 'user')
+        self.role.setCurrentText(role)
+
+        department = self.user_data.get('department_name', '')
+        if department:
+            index = self.department.findText(department)
+            if index >= 0:
+                self.department.setCurrentIndex(index)
+
+        position = self.user_data.get('position', '')
+        if position:
+            index = self.position.findText(position)
+            if index >= 0:
+                self.position.setCurrentIndex(index)
+
+        rank = self.user_data.get('rank', '')
+        if rank:
+            index = self.rank.findText(rank)
+            if index >= 0:
+                self.rank.setCurrentIndex(index)
+
+        # Загружаем права доступа пользователя
+        if self.db and role != 'admin':
+            permissions = self.db.get_user_department_permissions(self.user_data['id'])
+            for checkbox in self.permission_checkboxes:
+                for perm in permissions:
+                    if checkbox.text() == perm['department_name']:
+                        checkbox.setChecked(True)
+                        break
 
     def get_data(self):
         """Получение данных из формы"""
-        return {
+        # Получаем ID подразделения
+        department_name = self.department.currentText()
+        department_id = None
+        if self.db and department_name:
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+            result = cursor.fetchone()
+            if result:
+                department_id = result['id']
+
+        data = {
             'username': self.username.text().strip(),
             'password': self.password.text().strip(),
             'full_name': self.full_name.text().strip(),
             'role': self.role.currentText(),
-            'course': self.course.currentText() if self.course.currentText() != '' else None,
-            # 'faculty': self.faculty.text().strip() if self.faculty.text().strip() != '' else None
+            'department_id': department_id,
+            'position': self.position.currentText(),
+            'rank': self.rank.currentText(),
         }
+
+        # Получаем выбранные права доступа (только для обычных пользователей)
+        if data['role'] != 'admin':
+            selected_departments = []
+            for checkbox in self.permission_checkboxes:
+                if checkbox.isChecked():
+                    selected_departments.append(checkbox.text())
+            data['permissions'] = selected_departments
+        else:
+            data['permissions'] = []
+
+        return data
 
 
 class PermissionDialog(QDialog):
@@ -2350,22 +2701,21 @@ class MainWindow(QMainWindow):
         controls_layout = QHBoxLayout()
 
         # Кнопки
-        self.add_user_btn = QPushButton(QIcon(resource_path("icons/add_user.png")), 'Добавить пользователя')
+        self.add_user_btn = QPushButton("➕ Добавить пользователя")
         self.add_user_btn.clicked.connect(self.add_user)
 
-        self.edit_user_btn = QPushButton(QIcon(resource_path("icons/edit_user.png")), 'Редактировать пользователя')
+        self.edit_user_btn = QPushButton("✏️ Редактировать")
         self.edit_user_btn.clicked.connect(self.edit_user)
 
-        self.delete_user_btn = QPushButton(QIcon(resource_path("icons/delete_user.png")), 'Удалить пользователя')
+        self.delete_user_btn = QPushButton("🗑️ Удалить")
         self.delete_user_btn.clicked.connect(self.delete_user)
 
         # Поиск
         self.search_user_input = QLineEdit()
-        self.search_user_input.setPlaceholderText('Поиск пользователей...')
+        self.search_user_input.setPlaceholderText("Поиск пользователей...")
         self.search_user_input.textChanged.connect(self.refresh_users)
         self.search_user_input.setMinimumWidth(250)
 
-        # Добавление виджетов
         controls_layout.addWidget(self.add_user_btn)
         controls_layout.addWidget(self.edit_user_btn)
         controls_layout.addWidget(self.delete_user_btn)
@@ -2375,14 +2725,14 @@ class MainWindow(QMainWindow):
         controls_widget.setLayout(controls_layout)
         layout.addWidget(controls_widget)
 
-        # Таблица пользователей
+        # Таблица пользователей (обновленные колонки)
         self.users_table = QTableWidget()
-        self.users_table.setColumnCount(4)
+        self.users_table.setColumnCount(6)
         self.users_table.setHorizontalHeaderLabels([
-            'Логин', 'ФИО', 'Роль', 'Курс',
+            "Логин", "ФИО", "Роль", "Подразделение", "Должность", "Звание"
         ])
 
-        # Настройка таблица
+        # Настройка таблицы
         self.users_table.horizontalHeader().setStretchLastSection(True)
         self.users_table.setAlternatingRowColors(True)
         self.users_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -2391,13 +2741,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.users_table)
 
         self.users_tab.setLayout(layout)
-
-        # Загрузка пользователей
         self.refresh_users()
 
-    # Добавьте этот метод в класс MainWindow или как статический метод:
-
-    def format_phone_number(self, phone):
+    @staticmethod
+    def format_phone_number(phone):
         """Форматирование номера телефона в стандартный формат"""
         if not phone:
             return ""
@@ -2499,15 +2846,18 @@ class MainWindow(QMainWindow):
         # Заполнение таблицы
         self.users_table.setRowCount(len(users))
 
+        role_map = {'admin': 'Администратор', 'user': 'Пользователь'}
+
         for row, user in enumerate(users):
             user_dict = dict(user)
 
             items = [
                 QTableWidgetItem(user_dict.get('username', '')),
                 QTableWidgetItem(user_dict.get('full_name', '')),
-                QTableWidgetItem(user_dict.get('role', '')),
-                QTableWidgetItem(user_dict.get('course', '')),
-                # QTableWidgetItem(user_dict.get('faculty', ''))
+                QTableWidgetItem(role_map.get(user_dict.get('role', ''), user_dict.get('role', ''))),
+                QTableWidgetItem(user_dict.get('department_name', '')),
+                QTableWidgetItem(user_dict.get('position', '')),
+                QTableWidgetItem(user_dict.get('rank', '')),
             ]
 
             for col, item in enumerate(items):
@@ -2547,21 +2897,31 @@ class MainWindow(QMainWindow):
 
     def add_user(self):
         """Добавление нового пользователя"""
-        dialog = UserDialog()
+        dialog = UserDialog(db=self.db, parent=self)
         if dialog.exec():
             data = dialog.get_data()
 
-            # Проверка обязательных полей
-            if not data['username'] or not data['password'] or not data['full_name']:
-                QMessageBox.warning(self, 'Ошибка', 'Заполните все обязательные поля!')
-                return
-
+            # Добавляем пользователя
             user_id = self.db.add_user(
-                data['username'], data['password'], data['full_name'],
-                data['role'], data['course']
+                data['username'],
+                data['password'],
+                data['full_name'],
+                data['role'],
+                data['department_id'],
+                data['position'],
+                data['rank']
             )
 
             if user_id:
+                # Добавляем права доступа
+                for dept_name in data['permissions']:
+                    # Получаем ID подразделения
+                    cursor = self.db.conn.cursor()
+                    cursor.execute('SELECT id FROM departments WHERE name = ?', (dept_name,))
+                    result = cursor.fetchone()
+                    if result:
+                        self.db.add_user_department_permission(user_id, result['id'], True, False)
+
                 QMessageBox.information(self, 'Успех', 'Пользователь успешно добавлен!')
                 self.refresh_users()
                 self.load_users_for_combo()
@@ -2577,26 +2937,39 @@ class MainWindow(QMainWindow):
             return
 
         row = selected_rows[0].row()
-        user_id = int(self.users_table.item(row, 0).text())
+        username = self.users_table.item(row, 0).text()
 
         # Получение данных пользователя из БД
-        user_data = self.db.get_user_by_id(user_id)
-        if not user_data:
-            QMessageBox.critical(self, 'Ошибка', 'Пользователь не найден!')
-            return
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+        user_data = dict(cursor.fetchone())
 
-        user_dict = dict(user_data)
-        dialog = UserDialog(user_dict, self)
+        # Добавляем название подразделения
+        if user_data.get('department_id'):
+            cursor.execute('SELECT name FROM departments WHERE id = ?', (user_data['department_id'],))
+            dept = cursor.fetchone()
+            if dept:
+                user_data['department_name'] = dept['name']
+
+        dialog = UserDialog(user_data=user_data, db=self.db, parent=self)
         if dialog.exec():
-            data = dialog.get_data()
+            new_data = dialog.get_data()
 
-            # Если пароль не изменен, оставляем старый
-            if not data['password']:
-                data['password'] = user_dict['password']
-
-            success = self.db.update_user(user_id, data)
+            # Обновляем пользователя
+            success = self.db.update_user(user_data['id'], new_data)
 
             if success:
+                # Обновляем права доступа
+                # Сначала удаляем старые
+                cursor.execute('DELETE FROM user_department_permissions WHERE user_id = ?', (user_data['id'],))
+
+                # Добавляем новые
+                for dept_name in new_data['permissions']:
+                    cursor.execute('SELECT id FROM departments WHERE name = ?', (dept_name,))
+                    result = cursor.fetchone()
+                    if result:
+                        self.db.add_user_department_permission(user_data['id'], result['id'], True, False)
+
                 QMessageBox.information(self, 'Успех', 'Данные пользователя обновлены!')
                 self.refresh_users()
                 self.load_users_for_combo()
