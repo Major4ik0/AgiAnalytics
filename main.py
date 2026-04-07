@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 import sys
-
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
+                             QHBoxLayout, QGridLayout, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QMessageBox, QComboBox, QFrame,
+                             QMessageBox, QComboBox, QFrame,
                              QGroupBox, QTabWidget, QDialog, QDialogButtonBox,
-                             QFormLayout, QTextEdit, QDateEdit, QSpinBox,
-                             QFileDialog, QToolBar, QStatusBar, QMenuBar, QMenu,
-                             QScrollArea, QAction, QInputDialog, QCheckBox, QProgressDialog)  # Добавлен QProgressDialog
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+                             QFormLayout,
+                             QFileDialog, QToolBar, QStatusBar,
+                             QScrollArea, QAction, QCheckBox, QProgressDialog,
+                             QSizePolicy, QInputDialog, QListWidget)
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
 from datetime import datetime
 from database import Database
@@ -474,10 +474,10 @@ class ApplicantDialog(QDialog):
             cursor.execute('SELECT DISTINCT name FROM departments WHERE type != "root" ORDER BY name')
             departments = [row['name'] for row in cursor.fetchall()]
 
-            self.department.clear()
-            self.department.addItem("")
+            self.agitator_department.clear()
+            self.agitator_department.addItem("")
             for dept_name in departments:
-                self.department.addItem(dept_name)
+                self.agitator_department.addItem(dept_name)
 
     def on_agitator_type_changed(self):
         """Обработка изменения типа агитатора"""
@@ -1042,54 +1042,58 @@ class AdvancedSearchDialog(QDialog):
             checkbox.setChecked(False)
 
     def get_filters(self):
-        """Получение выбранных фильтров"""
+        """Получение выбранных фильтров (только заполненные)"""
         filters = {}
-
-        # Абитуриент
-        if self.applicant_name.text().strip():
-            filters['applicant_name'] = self.applicant_name.text().strip()
-
-        if self.region.currentText().strip() and self.region.currentText() != "Выберите или введите субъект РФ":
-            filters['region'] = self.region.currentText().strip()
-
-        if self.city.text().strip():
-            filters['city'] = self.city.text().strip()
-
+        # Абитуриент - только если не пусто
+        applicant_name = self.applicant_name.text().strip()
+        if applicant_name:
+            filters['applicant_name'] = applicant_name
+        region = self.region.currentText().strip()
+        if region and region != "Выберите или введите субъект РФ":
+            filters['region'] = region
+        city = self.city.text().strip()
+        if city:
+            filters['city'] = city
+        # Категория - только если не "все"
         category = self.category.currentText()
-        if category != "все":
-            filters['category'] = 'м' if category == "Мужчина" else 'ж' if category == "Женщина" else 'всл'
-
-        # Образование (множественный выбор)
+        if category != "все" and category != "Все категории":
+            if category == "Мужчина":
+                filters['category'] = 'м'
+            elif category == "Женщина":
+                filters['category'] = 'ж'
+            elif category == "Военнослужащий":
+                filters['category'] = 'всл'
+        # Образование (только выбранные)
         selected_education = [cb.text() for cb in self.education_checkboxes if cb.isChecked()]
         if selected_education:
             filters['education'] = selected_education
-
+        # Статус - только если не "все"
         status = self.status.currentText()
-        if status != "все":
+        if status != "все" and status != "Все статусы":
             filters['status'] = status
-
         # Агитатор
-        if self.agitator_name.text().strip():
-            filters['agitator_name'] = self.agitator_name.text().strip()
-
-        if self.agitator_department.currentText().strip():
-            filters['agitator_department'] = self.agitator_department.currentText().strip()
-
+        agitator_name = self.agitator_name.text().strip()
+        if agitator_name:
+            filters['agitator_name'] = agitator_name
+        agitator_department = self.agitator_department.currentText().strip()
+        if agitator_department:
+            filters['agitator_department'] = agitator_department
+        # Тип агитатора
         agitator_type = self.agitator_type.currentText()
-        if agitator_type != "все":
+        if agitator_type != "все" and agitator_type != "Все":
             filters['agitator_is_cadet'] = (agitator_type == "курсант")
-
-        # Дополнительные
-        if self.document_status.currentText().strip():
-            filters['document_status'] = self.document_status.currentText().strip()
-
+        # Документы
+        document_status = self.document_status.currentText().strip()
+        if document_status:
+            filters['document_status'] = document_status
+        # Курс - только если не "все"
         course = self.course.currentText()
-        if course != "все":
+        if course != "все" and course != "Все курсы":
             filters['agitator_course'] = course
-
-        if self.group.text().strip():
-            filters['agitator_group'] = self.group.text().strip()
-
+        # Группа
+        group = self.group.text().strip()
+        if group:
+            filters['agitator_group'] = group
         return filters
 
 
@@ -1871,86 +1875,887 @@ class PermissionDialog(QDialog):
         return data
 
 
-class ImportDialog(QDialog):
-    """Диалог для импорта данных с паролем и выбором листов"""
+class ImportWorker(QThread):
+    """Поток для импорта данных"""
+    progress = pyqtSignal(int, str)
+    finished = pyqtSignal(bool, str)
 
-    def __init__(self, file_path, parent=None):
-        super().__init__(parent)
+    def __init__(self, file_path, password, selected_sheets, mapping, user_id, db):
+        super().__init__()
         self.file_path = file_path
+        self.password = password
+        self.selected_sheets = selected_sheets
+        self.mapping = mapping
+        self.user_id = user_id
+        self.db = db
+
+    def run(self):
+        try:
+            temp_file_path = None
+
+            # Расшифровка если есть пароль
+            if self.password:
+                try:
+                    import msoffcrypto
+                    import tempfile
+
+                    with open(self.file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+                        office_file.load_key(password=self.password)
+
+                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        temp_file_path = temp_file.name
+                        office_file.decrypt(temp_file)
+                        temp_file.close()
+
+                        self.file_path = temp_file_path
+                except Exception as e:
+                    self.finished.emit(False, f"Ошибка расшифровки: {str(e)}")
+                    return
+
+            # Читаем Excel файл
+            try:
+                xls = pd.ExcelFile(self.file_path, engine='openpyxl')
+            except:
+                try:
+                    xls = pd.ExcelFile(self.file_path, engine='xlrd')
+                except:
+                    xls = pd.ExcelFile(self.file_path)
+
+            imported_count = 0
+            duplicate_count = 0
+            error_count = 0
+            total_rows = 0
+
+            # Подсчитываем общее количество строк для прогресса
+            for sheet_name in self.selected_sheets:
+                if sheet_name in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+                    total_rows += len(df)
+
+            current_row = 0
+
+            for sheet_name in self.selected_sheets:
+                if sheet_name not in xls.sheet_names:
+                    continue
+
+                self.progress.emit(int((current_row / total_rows) * 100), f"Обработка листа: {sheet_name}")
+
+                df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+
+                # Определяем курс из названия листа
+                course_from_sheet = ''
+                for course_num in ['1', '2', '3', '4', '5']:
+                    if f'{course_num} курс' in sheet_name.lower():
+                        course_from_sheet = f'{course_num} курс'
+                        break
+
+                for index, row in df.iterrows():
+                    current_row += 1
+
+                    if current_row % 10 == 0:
+                        self.progress.emit(int((current_row / total_rows) * 100),
+                                           f"Импорт: {current_row}/{total_rows}")
+
+                    # Пропускаем пустые строки
+                    if row.isnull().all():
+                        continue
+
+                    # Извлекаем данные по маппингу
+                    applicant_data = self.extract_data(row, self.mapping, course_from_sheet)
+
+                    if not applicant_data.get('applicant_name'):
+                        error_count += 1
+                        continue
+
+                    # Проверка на дубликат
+                    if self.check_duplicate(applicant_data):
+                        duplicate_count += 1
+                        continue
+
+                    # Добавляем в БД
+                    try:
+                        self.db.add_applicant(self.user_id, applicant_data)
+                        imported_count += 1
+                    except Exception as e:
+                        error_count += 1
+                        print(f"Ошибка добавления: {e}")
+
+            # Очистка
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+
+            result_message = f"""
+            ✅ Импорт завершен!
+
+            📊 Статистика:
+            • Успешно импортировано: {imported_count}
+            • Пропущено дубликатов: {duplicate_count}
+            • Ошибок: {error_count}
+            • Обработано листов: {len(self.selected_sheets)}
+            """
+
+            self.finished.emit(True, result_message)
+
+        except Exception as e:
+            self.finished.emit(False, f"Ошибка импорта: {str(e)}")
+
+    def extract_data(self, row, mapping, course_from_sheet):
+        """Извлечение данных по маппингу"""
+        data = {
+            'applicant_name': '',
+            'region': '',
+            'city': '',
+            'category': '',
+            'phone': '',
+            'education': '',
+            'status': 'поступает',
+            'document_status': '',
+            'agitator_department': '',
+            'agitator_name': '',
+            'agitator_course': '',
+            'agitator_group': '',
+            'agitator_rank': '',
+            'agitator_is_cadet': False,
+            'notes': ''
+        }
+
+        # Маппинг полей - ВАЖНО: правильно сопоставляем!
+        for field, column in mapping.items():
+            if column and column in row and pd.notna(row[column]):
+                value = str(row[column]).strip()
+
+                if field == 'applicant_name':
+                    data['applicant_name'] = value
+                elif field == 'region':
+                    data['region'] = value
+                elif field == 'city':
+                    data['city'] = value
+                elif field == 'category':
+                    if value.lower() in ['м', 'м.', 'муж', 'мужчина', 'male']:
+                        data['category'] = 'м'
+                    elif value.lower() in ['ж', 'ж.', 'жен', 'женщина', 'female']:
+                        data['category'] = 'ж'
+                    elif value.lower() in ['всл', 'военнослужащий', 'военнослужащие', 'воен']:
+                        data['category'] = 'всл'
+                    else:
+                        data['category'] = value[:2].lower()
+                elif field == 'phone':
+                    data['phone'] = self.normalize_phone(value)
+                elif field == 'education':
+                    data['education'] = value
+                elif field == 'status':
+                    if 'поступает' in value.lower() or 'поступают' in value.lower():
+                        data['status'] = 'поступает'
+                    else:
+                        data['status'] = 'отказывается'
+                elif field == 'document_status':
+                    data['document_status'] = value
+                elif field == 'agitator_department':
+                    data['agitator_department'] = value
+                elif field == 'agitator_name':
+                    data['agitator_name'] = value
+                elif field == 'agitator_course':
+                    data['agitator_course'] = value
+                elif field == 'agitator_group':
+                    data['agitator_group'] = value
+                elif field == 'agitator_rank':
+                    data['agitator_rank'] = value
+                elif field == 'notes':
+                    data['notes'] = value
+        # Если курс не указан, берем из названия листа
+        if not data['agitator_course'] and course_from_sheet:
+            data['agitator_course'] = course_from_sheet
+
+        # Определяем тип агитатора
+        if data['agitator_group'] or (data['agitator_course'] and not data['agitator_rank']):
+            data['agitator_is_cadet'] = True
+        return data
+
+    @staticmethod
+    def normalize_phone(phone):
+        """Нормализация номера телефона"""
+        if not phone:
+            return ""
+        digits = ''.join(filter(str.isdigit, phone))
+        if len(digits) < 10:
+            return phone
+        if digits.startswith('8') and len(digits) == 11:
+            return '7' + digits[1:]
+        elif len(digits) == 10:
+            return '7' + digits
+        elif digits.startswith('7') and len(digits) == 11:
+            return digits
+        return digits
+
+    def check_duplicate(self, applicant_data):
+        """Проверка на дубликат"""
+        cursor = self.db.conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM applicants 
+            WHERE applicant_name = ? AND phone = ?
+        ''', (applicant_data['applicant_name'], applicant_data['phone']))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+
+class ImportDialog(QDialog):
+    """Диалог для импорта данных с маппингом колонок"""
+
+    def __init__(self, db, user_id, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.user_id = user_id
+        self.file_path = None
+        self.available_columns = []
+        self.mapping = {}
         self.setModal(True)
         self.setWindowTitle('Импорт данных из Excel')
-        self.setFixedSize(500, 400)
-        self.sheet_checkboxes = []
-        self.available_sheets = []
+        self.setMinimumSize(800, 700)
+        self.setMaximumSize(1000, 800)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("📥 Импорт данных из Excel")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = title.font()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        # Создаем скролл область для всего содержимого
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(20)
+
+        # 1. Выбор файла
+        file_group = QGroupBox("1. Выбор файла")
+        file_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #3498db;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #3498db;
+            }
+        """)
+        file_layout = QHBoxLayout()
+
+        self.file_label = QLabel("Файл не выбран")
+        self.file_label.setStyleSheet("color: #e74c3c; padding: 5px;")
+
+        self.select_file_btn = QPushButton("📂 Выбрать файл")
+        self.select_file_btn.clicked.connect(self.select_file)
+        self.select_file_btn.setMinimumHeight(35)
+
+        file_layout.addWidget(self.select_file_btn)
+        file_layout.addWidget(self.file_label, 1)
+        file_group.setLayout(file_layout)
+        scroll_layout.addWidget(file_group)
+
+        # 2. Пароль
+        password_group = QGroupBox("2. Пароль (если требуется)")
+        password_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e67e22;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #e67e22;
+            }
+        """)
+        password_layout = QHBoxLayout()
+
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Введите пароль для защищенного файла")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.setMinimumHeight(35)
+
+        password_layout.addWidget(self.password_input)
+        password_group.setLayout(password_layout)
+        scroll_layout.addWidget(password_group)
+
+        # 3. Выбор листов
+        sheets_group = QGroupBox("3. Выбор листов для импорта")
+        sheets_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #2ecc71;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #2ecc71;
+            }
+        """)
+        sheets_layout = QVBoxLayout()
+
+        self.load_sheets_btn = QPushButton("📄 Загрузить листы")
+        self.load_sheets_btn.clicked.connect(self.load_sheets)
+        self.load_sheets_btn.setEnabled(False)
+        self.load_sheets_btn.setMinimumHeight(35)
+        sheets_layout.addWidget(self.load_sheets_btn)
+
+        self.sheets_widget = QWidget()
+        self.sheets_layout = QVBoxLayout(self.sheets_widget)
+        self.sheets_widget.setVisible(False)
+        sheets_layout.addWidget(self.sheets_widget)
+
+        sheets_group.setLayout(sheets_layout)
+        scroll_layout.addWidget(sheets_group)
+
+        # 4. Сопоставление колонок
+        mapping_group = QGroupBox("4. Сопоставление колонок")
+        mapping_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #9b59b6;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #9b59b6;
+            }
+        """)
+
+        # Создаем скролл для маппинга
+        mapping_scroll = QScrollArea()
+        mapping_scroll.setWidgetResizable(True)
+        mapping_scroll.setMaximumHeight(400)
+        mapping_scroll.setStyleSheet("QScrollArea { border: 1px solid #ddd; border-radius: 5px; }")
+
+        self.mapping_widget = QWidget()
+        self.mapping_layout = QFormLayout(self.mapping_widget)
+        self.mapping_layout.setSpacing(10)
+        self.mapping_widget.setVisible(False)
+
+        mapping_scroll.setWidget(self.mapping_widget)
+
+        mapping_layout_main = QVBoxLayout()
+        mapping_layout_main.addWidget(mapping_scroll)
+        mapping_group.setLayout(mapping_layout_main)
+        scroll_layout.addWidget(mapping_group)
+
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+        # Кнопки
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_button.setText("🚀 Начать импорт")
+        self.ok_button.setEnabled(False)
+        self.ok_button.setMinimumHeight(40)
+        self.ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
+
+        cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_button.setText("❌ Отмена")
+        cancel_button.setMinimumHeight(40)
+
+        button_box.accepted.connect(self.start_import)
+        button_box.rejected.connect(self.reject)
+
+        layout.addWidget(button_box)
+
+    def select_file(self):
+        """Выбор Excel файла"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 'Выберите Excel файл', '',
+            'Excel Files (*.xlsx *.xls *.xlsm);;All Files (*)'
+        )
+
+        if file_path:
+            self.file_path = file_path
+            self.file_label.setText(f"📁 {os.path.basename(file_path)}")
+            self.file_label.setStyleSheet("color: #2ecc71; padding: 5px;")
+            self.load_sheets_btn.setEnabled(True)
+            self.reset_sheets()
+
+    def reset_sheets(self):
+        """Сброс выбора листов"""
+        # Очищаем чекбоксы
+        while self.sheets_layout.count():
+            item = self.sheets_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.sheets_widget.setVisible(False)
+        self.mapping_widget.setVisible(False)
+        self.ok_button.setEnabled(False)
+        self.available_columns = []
+        self.mapping = {}
+
+    def load_sheets(self):
+        """Загрузка списка листов"""
+        if not self.file_path:
+            return
+
+        try:
+            # Определяем движок
+            engine = 'openpyxl' if self.file_path.endswith('.xlsx') else 'xlrd'
+
+            # Пробуем прочитать с паролем
+            temp_file_path = None
+            file_path = self.file_path
+
+            if self.password_input.text().strip():
+                try:
+                    import msoffcrypto
+                    import tempfile
+
+                    with open(self.file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+                        office_file.load_key(password=self.password_input.text().strip())
+
+                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        temp_file_path = temp_file.name
+                        office_file.decrypt(temp_file)
+                        temp_file.close()
+
+                        file_path = temp_file_path
+                except Exception as e:
+                    QMessageBox.warning(self, "Ошибка", f"Неверный пароль: {str(e)}")
+                    return
+
+            xls = pd.ExcelFile(file_path, engine=engine)
+
+            # Очищаем старые чекбоксы
+            while self.sheets_layout.count():
+                item = self.sheets_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            # Создаем чекбоксы для каждого листа
+            self.sheet_checkboxes = []
+            sheets_container = QWidget()
+            sheets_container_layout = QGridLayout(sheets_container)
+
+            row = 0
+            col = 0
+            for sheet in xls.sheet_names:
+                checkbox = QCheckBox(sheet)
+                if 'курс' in sheet.lower():
+                    checkbox.setChecked(True)
+                self.sheet_checkboxes.append(checkbox)
+                sheets_container_layout.addWidget(checkbox, row, col)
+                col += 1
+                if col >= 3:
+                    col = 0
+                    row += 1
+
+            self.sheets_layout.addWidget(sheets_container)
+
+            # Добавляем кнопки выбора
+            buttons_widget = QWidget()
+            buttons_layout = QHBoxLayout(buttons_widget)
+
+            select_all_btn = QPushButton("✅ Выбрать все")
+            select_all_btn.clicked.connect(self.select_all_sheets)
+            clear_all_btn = QPushButton("❌ Снять все")
+            clear_all_btn.clicked.connect(self.clear_all_sheets)
+
+            buttons_layout.addWidget(select_all_btn)
+            buttons_layout.addWidget(clear_all_btn)
+            buttons_layout.addStretch()
+
+            self.sheets_layout.addWidget(buttons_widget)
+            self.sheets_widget.setVisible(True)
+
+            # Сохраняем колонки для маппинга
+            first_sheet = xls.sheet_names[0]
+            df = pd.read_excel(file_path, sheet_name=first_sheet, header=0)
+            self.available_columns = list(df.columns)
+
+            # Создаем маппинг
+            self.create_mapping_ui()
+
+            # Очищаем временный файл
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить листы: {str(e)}")
+
+    def select_all_sheets(self):
+        """Выбрать все листы"""
+        for checkbox in self.sheet_checkboxes:
+            checkbox.setChecked(True)
+
+    def clear_all_sheets(self):
+        """Снять все выделения"""
+        for checkbox in self.sheet_checkboxes:
+            checkbox.setChecked(False)
+
+    def create_mapping_ui(self):
+        """Создание интерфейса для маппинга колонок"""
+        # Очищаем старый маппинг
+        while self.mapping_layout.count():
+            item = self.mapping_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Поля для маппинга - правильный порядок!
+        fields = [
+            ('applicant_name', 'ФИО абитуриента *', True),
+            ('region', 'Субъект РФ', False),
+            ('city', 'Населенный пункт', False),
+            ('category', 'Категория (м/ж/всл)', False),
+            ('phone', 'Телефон', False),
+            ('education', 'Образование', False),
+            ('status', 'Статус (поступает/отказывается)', False),
+            ('document_status', 'Документы', False),
+            ('agitator_department', 'Подразделение агитатора', False),
+            ('agitator_name', 'ФИО агитатора *', True),
+            ('agitator_course', 'Курс агитатора', False),
+            ('agitator_group', 'Группа агитатора', False),
+            ('agitator_rank', 'Звание агитатора', False),
+            ('notes', 'Примечания', False)
+        ]
+
+        # Показываем доступные колонки для отладки
+        for field, label, required in fields:
+            # Создаем виджет для строки
+            row_widget = QFrame()
+            row_widget.setFrameStyle(QFrame.Shape.StyledPanel)
+            row_widget.setStyleSheet("QFrame { background-color: #f8f9fa; border-radius: 5px; }")
+
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(10, 5, 10, 5)
+
+            # Метка
+            field_label = QLabel(label)
+            field_label.setMinimumWidth(200)
+            if required:
+                field_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+
+            # Комбобокс с колонками
+            combo = QComboBox()
+            combo.addItem("-- Не выбрано --")
+            combo.addItems(self.available_columns)
+            combo.setMinimumWidth(300)
+            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+            # Автоматическое определение колонки
+            auto_match = self.auto_match_column(field)
+            if auto_match and auto_match in self.available_columns:
+                index = combo.findText(auto_match)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            row_layout.addWidget(field_label)
+            row_layout.addWidget(combo, 1)
+
+            self.mapping_layout.addRow(row_widget)
+
+            # Сохраняем ссылку на комбобокс
+            setattr(self, f"combo_{field}", combo)
+
+        # Добавляем пояснение
+        info_label = QLabel("* Обязательные поля для сопоставления")
+        info_label.setStyleSheet("color: #7f8c8d; font-style: italic; margin-top: 10px;")
+        self.mapping_layout.addRow(info_label)
+
+        # Добавляем кнопку для проверки маппинга
+        test_btn = QPushButton("🔍 Проверить маппинг")
+        test_btn.clicked.connect(self.test_mapping)
+        self.mapping_layout.addRow(test_btn)
+
+        self.mapping_widget.setVisible(True)
+        self.ok_button.setEnabled(True)
+
+    def test_mapping(self):
+        """Проверка маппинга - показывает первые 5 строк данных"""
+        if not hasattr(self, 'sheet_checkboxes') or not self.sheet_checkboxes:
+            QMessageBox.warning(self, "Ошибка", "Сначала загрузите листы!")
+            return
+
+        # Берем первый выбранный лист
+        selected = [cb for cb in self.sheet_checkboxes if cb.isChecked()]
+        if not selected:
+            QMessageBox.warning(self, "Ошибка", "Выберите хотя бы один лист!")
+            return
+
+        sheet_name = selected[0].text()
+
+        try:
+            # Читаем файл
+            file_path = self.file_path
+            temp_file_path = None
+
+            if self.password_input.text().strip():
+                try:
+                    import msoffcrypto
+                    import tempfile
+
+                    with open(self.file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+                        office_file.load_key(password=self.password_input.text().strip())
+
+                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+                        temp_file_path = temp_file.name
+                        office_file.decrypt(temp_file)
+                        temp_file.close()
+
+                        file_path = temp_file_path
+                except:
+                    pass
+
+            df = pd.read_excel(file_path, sheet_name=sheet_name, header=0)
+
+            # Показываем первые 5 строк
+            preview_text = f"Первые 5 строк из листа '{sheet_name}':\n\n"
+            preview_text += df.head(5).to_string()
+
+            # Также показываем маппинг
+            mapping = self.get_mapping()
+            preview_text += f"\n\nТекущий маппинг:\n"
+            for field, column in mapping.items():
+                if column:
+                    preview_text += f"  {field} -> {column}\n"
+                else:
+                    preview_text += f"  {field} -> (не выбрано)\n"
+
+            QMessageBox.information(self, "Проверка данных", preview_text)
+
+            # Очищаем временный файл
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось прочитать файл: {str(e)}")
+
+    def auto_match_column(self, field):
+        """Автоматическое определение колонки по названию"""
+        matches = {
+            'applicant_name': ['абитуриент', 'фио абитуриента', 'фио', 'ф.и.о.', 'фио студента', 'фио абитуриента'],
+            'region': ['субъект', 'регион', 'область', 'край', 'республика', 'субъект рф'],
+            'city': ['город', 'населенный пункт', 'населённый пункт', 'город/село', 'населенный', 'город'],
+            'category': ['категория', 'пол', 'кат', 'категория абитуриента', 'категория'],
+            'phone': ['телефон', 'тел', 'номер телефона', 'контактный телефон', 'мобильный', 'телефон'],
+            'education': ['образование', 'уровень образования', 'школа', 'вуз', 'училище', 'образование'],
+            'status': ['статус', 'поступление', 'статус поступления', 'решение', 'статус'],
+            'document_status': ['документы', 'статус документов', 'личное дело', 'документ', 'документы'],
+            'agitator_department': ['подразделение агитатора', 'подразделение', 'кафедра', 'факультет', 'отделение',
+                                    'подр'],
+            'agitator_name': ['агитатор', 'фио агитатора', 'кто пригласил', 'пригласил', 'агитатор фио',
+                              'фио агитатора'],
+            'agitator_course': ['курс агитатора', 'курс', 'год обучения', 'курс'],
+            'agitator_group': ['группа агитатора', 'группа', 'учебная группа', 'номер группы', 'группа'],
+            'agitator_rank': ['звание агитатора', 'звание', 'воинское звание', 'в/з', 'ранг', 'звание'],
+            'notes': ['примечание', 'комментарий', 'заметки', 'прим', 'примечания']
+        }
+
+        field_matches = matches.get(field, [])
+        for col in self.available_columns:
+            col_lower = str(col).lower().strip()
+            for match in field_matches:
+                if match.lower() in col_lower:
+                    return col
+        return None
+
+    def get_selected_sheets(self):
+        """Получить выбранные листы"""
+        if not hasattr(self, 'sheet_checkboxes'):
+            return []
+        return [cb.text() for cb in self.sheet_checkboxes if cb.isChecked()]
+
+    def get_mapping(self):
+        """Получить маппинг колонок"""
+        mapping = {}
+        fields = ['applicant_name', 'region', 'city', 'category', 'phone',
+                  'education', 'status', 'document_status', 'agitator_department',
+                  'agitator_name', 'agitator_course', 'agitator_group',
+                  'agitator_rank', 'notes']
+
+        for field in fields:
+            combo = getattr(self, f"combo_{field}", None)
+            if combo and combo.currentIndex() > 0:
+                mapping[field] = combo.currentText()
+            else:
+                mapping[field] = None
+
+        return mapping
+
+    def start_import(self):
+        """Запуск импорта"""
+        selected_sheets = self.get_selected_sheets()
+        if not selected_sheets:
+            QMessageBox.warning(self, "Ошибка", "Выберите хотя бы один лист для импорта!")
+            return
+
+        mapping = self.get_mapping()
+
+        # Проверяем обязательные поля
+        if not mapping.get('applicant_name'):
+            QMessageBox.warning(self, "Ошибка", "Необходимо сопоставить колонку 'ФИО абитуриента'!")
+            return
+
+        if not mapping.get('agitator_name'):
+            QMessageBox.warning(self, "Ошибка", "Необходимо сопоставить колонку 'ФИО агитатора'!")
+            return
+
+        # Запускаем импорт в отдельном потоке
+        self.worker = ImportWorker(
+            self.file_path,
+            self.password_input.text().strip(),
+            selected_sheets,
+            mapping,
+            self.user_id,
+            self.db
+        )
+
+        self.worker.progress.connect(self.update_progress)
+        self.worker.finished.connect(self.import_finished)
+
+        # Показываем прогресс
+        self.progress_dialog = QProgressDialog("Подготовка к импорту...", "Отмена", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Импорт данных")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.canceled.connect(self.worker.terminate)
+        self.progress_dialog.show()
+
+        self.worker.start()
+
+    def update_progress(self, value, message):
+        """Обновление прогресса"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.setValue(value)
+            self.progress_dialog.setLabelText(message)
+
+    def import_finished(self, success, message):
+        """Завершение импорта"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+
+        if success:
+            QMessageBox.information(self, "Успех", message)
+            self.accept()
+        else:
+            QMessageBox.critical(self, "Ошибка", message)
+
+
+class DepartmentDialog(QDialog):
+    """Диалог добавления/редактирования подразделения"""
+
+    def __init__(self, dept_data=None, db=None, parent=None):
+        super().__init__(parent)
+        self.dept_data = dept_data
+        self.db = db
+        self.setModal(True)
+
+        if dept_data:
+            self.setWindowTitle('✏️ Редактировать подразделение')
+        else:
+            self.setWindowTitle('➕ Добавить подразделение')
+
+        self.setMinimumSize(450, 400)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # Информация о файле
-        file_info = QLabel(f"Файл: {os.path.basename(self.file_path)}")
-        file_info.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        layout.addWidget(file_info)
+        form_layout = QFormLayout()
+        form_layout.setSpacing(15)
 
-        # Пароль для Excel файла (если требуется)
-        excel_password_layout = QHBoxLayout()
-        excel_password_label = QLabel("Пароль Excel файла (если требуется):")
-        self.excel_password_input = QLineEdit()
-        self.excel_password_input.setPlaceholderText('Оставьте пустым, если файл не защищен')
-        self.excel_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.excel_password_input.textChanged.connect(self.on_password_changed)
-        excel_password_layout.addWidget(excel_password_label)
-        excel_password_layout.addWidget(self.excel_password_input)
-        layout.addLayout(excel_password_layout)
+        # Название подразделения
+        self.name = QLineEdit()
+        self.name.setPlaceholderText("Например: Факультет 1, Кафедра 1, Группа 101")
+        if self.dept_data:
+            self.name.setText(self.dept_data.get('name', ''))
+        form_layout.addRow("Название *:", self.name)
 
-        # Кнопка для загрузки листов
-        self.load_sheets_btn = QPushButton("📄 Загрузить список листов")
-        self.load_sheets_btn.clicked.connect(self.load_sheets)
-        self.load_sheets_btn.setEnabled(True)
-        layout.addWidget(self.load_sheets_btn)
+        # Тип подразделения
+        self.dept_type = QComboBox()
+        self.dept_type.addItems(["faculty", "department", "group"])
+        self.dept_type.setItemText(0, "Факультет")
+        self.dept_type.setItemText(1, "Кафедра")
+        self.dept_type.setItemText(2, "Группа")
+        if self.dept_data:
+            type_index = {"faculty": 0, "department": 1, "group": 2}.get(self.dept_data.get('type', 'department'), 1)
+            self.dept_type.setCurrentIndex(type_index)
+        self.dept_type.currentTextChanged.connect(self.on_type_changed)
+        form_layout.addRow("Тип:", self.dept_type)
 
-        # Область для отображения листов
-        sheets_label = QLabel("Выберите листы для импорта:")
-        sheets_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        self.sheets_label = sheets_label
-        self.sheets_label.setVisible(False)
-        layout.addWidget(self.sheets_label)
+        # Родительское подразделение (для групп)
+        self.parent_dept = QComboBox()
+        self.parent_dept.addItem("Нет (корневое)")
+        self.load_parent_departments()
+        if self.dept_data and self.dept_data.get('parent_id'):
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT name FROM departments WHERE id = ?', (self.dept_data['parent_id'],))
+            parent = cursor.fetchone()
+            if parent:
+                index = self.parent_dept.findText(parent['name'])
+                if index >= 0:
+                    self.parent_dept.setCurrentIndex(index)
+        form_layout.addRow("Родительское подразделение:", self.parent_dept)
 
-        self.sheet_container = QWidget()
-        self.sheet_layout = QVBoxLayout(self.sheet_container)
+        # Начальник подразделения
+        self.head_user = QComboBox()
+        self.head_user.addItem("Не назначен")
+        self.load_users()
+        if self.dept_data and self.dept_data.get('head_user_id'):
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT full_name FROM users WHERE id = ?', (self.dept_data['head_user_id'],))
+            head = cursor.fetchone()
+            if head:
+                index = self.head_user.findText(head['full_name'])
+                if index >= 0:
+                    self.head_user.setCurrentIndex(index)
+        form_layout.addRow("Начальник подразделения:", self.head_user)
 
-        # Добавляем прокрутку
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.sheet_container)
-        self.scroll_area.setMaximumHeight(150)
-        self.scroll_area.setVisible(False)
-        layout.addWidget(self.scroll_area)
-
-        # Виджет с кнопками выбора всех/очистки
-        self.buttons_widget = QWidget()
-        self.buttons_layout = QHBoxLayout(self.buttons_widget)
-        self.select_all_btn = QPushButton('Выбрать все')
-        self.select_all_btn.clicked.connect(self.select_all_sheets)
-        self.clear_all_btn = QPushButton('Очистить все')
-        self.clear_all_btn.clicked.connect(self.clear_all_sheets)
-        self.buttons_layout.addWidget(self.select_all_btn)
-        self.buttons_layout.addWidget(self.clear_all_btn)
-        self.buttons_layout.addStretch()
-        self.buttons_widget.setVisible(False)
-        layout.addWidget(self.buttons_widget)
-
-        # Информация
-        info_label = QLabel("""
-        ⚠️ При импорте:
-        • Проверяются дубликаты (по ФИО и телефону)
-        • Существующие данные не будут перезаписаны
-        • Пустые строки игнорируются
-        """)
-        info_label.setStyleSheet("color: #e67e22; font-size: 12px; margin-top: 10px;")
-        layout.addWidget(info_label)
-
-        layout.addStretch()
+        layout.addLayout(form_layout)
 
         # Кнопки
         button_box = QDialogButtonBox(
@@ -1959,159 +2764,82 @@ class ImportDialog(QDialog):
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setEnabled(False)
         layout.addWidget(button_box)
 
         self.setLayout(layout)
+        self.on_type_changed()
 
-    def on_password_changed(self, text):
-        """При изменении пароля сбрасываем выбор листов"""
-        self.reset_sheet_selection()
+    def on_type_changed(self):
+        """При изменении типа показываем/скрываем родительское подразделение"""
+        is_group = self.dept_type.currentText() == "group"
+        self.parent_dept.setVisible(is_group)
+        # Меняем метку
+        if is_group:
+            self.parent_dept.setToolTip("Выберите факультет или кафедру, к которому относится группа")
+        else:
+            self.parent_dept.setToolTip("")
 
-    def reset_sheet_selection(self):
-        """Сброс выбора листов"""
-        while self.sheet_layout.count():
-            item = self.sheet_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def load_parent_departments(self):
+        """Загрузка родительских подразделений (только факультеты и кафедры)"""
+        if self.db:
+            cursor = self.db.conn.cursor()
+            cursor.execute('''
+                SELECT name FROM departments 
+                WHERE type IN ('faculty', 'department') AND type != 'root'
+                ORDER BY 
+                    CASE type
+                        WHEN 'faculty' THEN 1
+                        WHEN 'department' THEN 2
+                        ELSE 3
+                    END,
+                    name
+            ''')
+            for row in cursor.fetchall():
+                self.parent_dept.addItem(row['name'])
 
-        self.sheet_checkboxes = []
-        self.available_sheets = []
-        self.sheets_label.setVisible(False)
-        self.scroll_area.setVisible(False)
-        self.buttons_widget.setVisible(False)
-        self.ok_button.setEnabled(False)
+    def load_users(self):
+        """Загрузка пользователей для назначения начальником"""
+        if self.db:
+            cursor = self.db.conn.cursor()
+            cursor.execute('''
+                SELECT id, full_name, role 
+                FROM users 
+                WHERE role != 'admin' OR role = 'admin'
+                ORDER BY full_name
+            ''')
+            for row in cursor.fetchall():
+                role_mark = " (Админ)" if row['role'] == 'admin' else ""
+                self.head_user.addItem(f"{row['full_name']}{role_mark}", row['id'])
 
-    def load_sheets(self):
-        """Загрузка списка листов из файла с использованием пароля"""
-        # Очищаем предыдущие чекбоксы
-        self.reset_sheet_selection()
+    def get_data(self):
+        """Получение данных из формы"""
+        data = {
+            'name': self.name.text().strip(),
+            'type': self.dept_type.currentText(),
+            'parent_id': None,
+            'head_user_id': None
+        }
 
-        password = self.excel_password_input.text().strip()
-        file_path = self.file_path
+        # Проверка обязательного поля
+        if not data['name']:
+            QMessageBox.warning(self, "Ошибка", "Введите название подразделения!")
+            return None
 
-        xls = None  # Объявляем переменную заранее
-        temp_file_path = None
+        # Родительское подразделение
+        parent_name = self.parent_dept.currentText()
+        if parent_name and parent_name != "Нет (корневое)" and self.db:
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT id FROM departments WHERE name = ?', (parent_name,))
+            parent = cursor.fetchone()
+            if parent:
+                data['parent_id'] = parent['id']
 
-        try:
-            # Если указан пароль, пробуем расшифровать
-            if password:
-                try:
-                    import msoffcrypto
-                    import tempfile
+        # Начальник
+        head_data = self.head_user.currentData()
+        if head_data:
+            data['head_user_id'] = head_data
 
-                    with open(file_path, "rb") as f:
-                        office_file = msoffcrypto.OfficeFile(f)
-                        office_file.load_key(password=password)
-
-                        temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
-                        temp_file_path = temp_file.name
-                        office_file.decrypt(temp_file)
-                        temp_file.close()
-
-                        file_path = temp_file_path
-
-                except Exception as e:
-                    QMessageBox.warning(self, 'Ошибка пароля',
-                                        'Неверный пароль или файл не защищен паролем. '
-                                        'Попробуйте снова или оставьте поле пустым.')
-                    return
-
-            try:
-                # Пробуем разные движки для чтения Excel
-                try:
-                    xls = pd.ExcelFile(file_path, engine='openpyxl')
-                except Exception as e1:
-                    try:
-                        xls = pd.ExcelFile(file_path, engine='xlrd')
-                    except Exception as e2:
-                        # Пробуем без указания движка
-                        try:
-                            xls = pd.ExcelFile(file_path)
-                        except Exception as e3:
-                            QMessageBox.critical(self, 'Ошибка чтения файла',
-                                                 f'Не удалось прочитать файл Excel.\n'
-                                                 f'Ошибки:\n'
-                                                 f'Openpyxl: {str(e1)}\n'
-                                                 f'Xlrd: {str(e2)}\n'
-                                                 f'Automatic: {str(e3)}')
-                            return
-
-                self.available_sheets = xls.sheet_names
-
-                # Создаем чекбоксы для каждого листа
-                for sheet in self.available_sheets:
-                    checkbox = QCheckBox(sheet)
-                    # Автоматически выбираем листы с "курс"
-                    if 'курс' in sheet.lower():
-                        checkbox.setChecked(True)
-                    self.sheet_checkboxes.append(checkbox)
-                    self.sheet_layout.addWidget(checkbox)
-
-                # Показываем элементы
-                self.sheets_label.setVisible(True)
-                self.scroll_area.setVisible(True)
-                self.buttons_widget.setVisible(True)
-                self.ok_button.setEnabled(any(cb.isChecked() for cb in self.sheet_checkboxes))
-
-                # Обновляем состояние OK кнопки при изменении чекбоксов
-                for checkbox in self.sheet_checkboxes:
-                    checkbox.stateChanged.connect(self.update_ok_button)
-
-            except Exception as e:
-                QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки листов: {str(e)}')
-
-            finally:
-                # ВАЖНО: закрываем файл
-                if xls is not None:
-                    try:
-                        xls.close()
-                    except:
-                        pass
-
-                # Удаляем временный файл
-                if temp_file_path and os.path.exists(temp_file_path):
-                    try:
-                        import time
-                        time.sleep(0.1)  # Даем время системе освободить файл
-
-                        for attempt in range(3):
-                            try:
-                                os.unlink(temp_file_path)
-                                break
-                            except PermissionError:
-                                time.sleep(0.1)
-                                continue
-                    except Exception as e:
-                        print(f"Ошибка удаления временного файла в диалоге: {e}")
-
-        except Exception as e:
-            QMessageBox.critical(self, 'Ошибка', f'Ошибка загрузки файла: {str(e)}')
-
-    def update_ok_button(self):
-        """Обновление состояния кнопки OK в зависимости от выбора листов"""
-        has_selected = any(cb.isChecked() for cb in self.sheet_checkboxes)
-        self.ok_button.setEnabled(has_selected)
-
-    def select_all_sheets(self):
-        """Выбрать все листы"""
-        for checkbox in self.sheet_checkboxes:
-            checkbox.setChecked(True)
-        self.update_ok_button()
-
-    def clear_all_sheets(self):
-        """Очистить все выборы"""
-        for checkbox in self.sheet_checkboxes:
-            checkbox.setChecked(False)
-        self.update_ok_button()
-
-    def get_excel_password(self):
-        return self.excel_password_input.text().strip()
-
-    def get_selected_sheets(self):
-        """Получить список выбранных листов"""
-        return [checkbox.text() for checkbox in self.sheet_checkboxes if checkbox.isChecked()]
+        return data
 
 
 class MainWindow(QMainWindow):
@@ -2608,7 +3336,7 @@ class MainWindow(QMainWindow):
         id_to_row = {}
 
         # Категории для отображения
-        category_map = {'м': 'Мужчина', 'ж': 'Женщина', 'всл': 'Военнослужащий'}
+        category_map = {'м': 'м', 'ж': 'ж', 'всл': 'в/сл'}
 
         for row, applicant in enumerate(applicants):
             applicant_dict = dict(applicant)
@@ -2624,7 +3352,7 @@ class MainWindow(QMainWindow):
 
             # Статус
             status = applicant_dict.get('status', '')
-            status_display = '✅ Поступает' if status == 'поступает' else '❌ Отказывается'
+            status_display = 'Поступает' if status == 'поступает' else 'Отказывается'
 
             items = [
                 QTableWidgetItem(str(applicant_id)),  # ID скрытый
@@ -2678,19 +3406,475 @@ class MainWindow(QMainWindow):
 
         # Вкладки внутри настроек
         self.admin_tabs = QTabWidget()
+        self.admin_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #ddd;
+                background-color: white;
+                border-radius: 5px;
+            }
+            QTabBar::tab {
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                margin-right: 2px;
+                border: 1px solid #ddd;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected {
+                background-color: #3498db;
+                color: white;
+            }
+        """)
 
         # Вкладка пользователей
         self.users_tab = QWidget()
         self.init_users_tab()
-        self.admin_tabs.addTab(self.users_tab, QIcon(resource_path("icons/users.png")), 'Пользователи')
+        self.admin_tabs.addTab(self.users_tab, "👥 Пользователи")
+
+        # Вкладка подразделений (НОВАЯ)
+        self.departments_tab = QWidget()
+        self.init_departments_tab()
+        self.admin_tabs.addTab(self.departments_tab, "🏢 Подразделения")
+
+        # Вкладка образования
+        self.education_tab = QWidget()
+        self.init_education_tab()
+        self.admin_tabs.addTab(self.education_tab, "🎓 Образование")
+
+        # Вкладка документов
+        self.documents_tab = QWidget()
+        self.init_documents_tab()
+        self.admin_tabs.addTab(self.documents_tab, "📄 Статусы документов")
 
         # Вкладка прав доступа
         self.permissions_tab = QWidget()
         self.init_permissions_tab()
-        self.admin_tabs.addTab(self.permissions_tab, QIcon('icons/rules.png'), 'Права доступа')
+        self.admin_tabs.addTab(self.permissions_tab, "🔒 Права доступа")
 
         layout.addWidget(self.admin_tabs)
         self.settings_tab.setLayout(layout)
+
+    def init_education_tab(self):
+        """Инициализация вкладки управления образованием"""
+        layout = QVBoxLayout()
+
+        # Панель управления
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout()
+
+        self.add_edu_btn = QPushButton("➕ Добавить")
+        self.add_edu_btn.clicked.connect(self.add_education_type)
+        self.add_edu_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        self.delete_edu_btn = QPushButton("🗑️ Удалить")
+        self.delete_edu_btn.clicked.connect(self.delete_education_type)
+        self.delete_edu_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        controls_layout.addWidget(self.add_edu_btn)
+        controls_layout.addWidget(self.delete_edu_btn)
+        controls_layout.addStretch()
+
+        controls_widget.setLayout(controls_layout)
+        layout.addWidget(controls_widget)
+
+        # Список образования
+        self.education_list = QListWidget()
+        self.refresh_education_list()
+        layout.addWidget(self.education_list)
+
+        self.education_tab.setLayout(layout)
+
+    def init_documents_tab(self):
+        """Инициализация вкладки управления статусами документов"""
+        layout = QVBoxLayout()
+
+        # Панель управления
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout()
+
+        self.add_doc_btn = QPushButton("➕ Добавить")
+        self.add_doc_btn.clicked.connect(self.add_document_status)
+        self.add_doc_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        self.delete_doc_btn = QPushButton("🗑️ Удалить")
+        self.delete_doc_btn.clicked.connect(self.delete_document_status)
+        self.delete_doc_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        controls_layout.addWidget(self.add_doc_btn)
+        controls_layout.addWidget(self.delete_doc_btn)
+        controls_layout.addStretch()
+
+        controls_widget.setLayout(controls_layout)
+        layout.addWidget(controls_widget)
+
+        # Список статусов документов
+        self.documents_list = QListWidget()
+        self.refresh_documents_list()
+        layout.addWidget(self.documents_list)
+
+        self.documents_tab.setLayout(layout)
+
+    def refresh_education_list(self):
+        """Обновление списка образования"""
+        self.education_list.clear()
+        education_types = self.db.get_education_types()
+        for edu in education_types:
+            self.education_list.addItem(edu)
+
+    def refresh_documents_list(self):
+        """Обновление списка статусов документов"""
+        self.documents_list.clear()
+        doc_statuses = self.db.get_document_statuses()
+        for doc in doc_statuses:
+            self.documents_list.addItem(doc)
+
+    def add_education_type(self):
+        """Добавление типа образования"""
+        text, ok = QInputDialog.getText(self, "Добавить тип образования", "Введите название:")
+        if ok and text.strip():
+            success = self.db.add_education_type(text.strip())
+            if success:
+                self.refresh_education_list()
+                QMessageBox.information(self, "Успех", "Тип образования добавлен!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Такой тип уже существует!")
+
+    def delete_education_type(self):
+        """Удаление типа образования"""
+        current = self.education_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Внимание", "Выберите тип для удаления!")
+            return
+
+        reply = QMessageBox.question(
+            self, "Подтверждение",
+            f"Удалить '{current.text()}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            success = self.db.delete_education_type(current.text())
+            if success:
+                self.refresh_education_list()
+                QMessageBox.information(self, "Успех", "Тип образования удален!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Не удалось удалить!")
+
+    def add_document_status(self):
+        """Добавление статуса документов"""
+        text, ok = QInputDialog.getText(self, "Добавить статус документов", "Введите название:")
+        if ok and text.strip():
+            success = self.db.add_document_status(text.strip())
+            if success:
+                self.refresh_documents_list()
+                QMessageBox.information(self, "Успех", "Статус документов добавлен!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Такой статус уже существует!")
+
+    def delete_document_status(self):
+        """Удаление статуса документов"""
+        current = self.documents_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Внимание", "Выберите статус для удаления!")
+            return
+
+        reply = QMessageBox.question(
+            self, "Подтверждение",
+            f"Удалить '{current.text()}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            success = self.db.delete_document_status(current.text())
+            if success:
+                self.refresh_documents_list()
+                QMessageBox.information(self, "Успех", "Статус документов удален!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Не удалось удалить!")
+
+    def refresh_departments(self):
+        """Обновление списка подразделений"""
+        departments = self.db.get_all_departments_with_heads()
+
+        self.departments_table.setRowCount(len(departments))
+
+        for row, dept in enumerate(departments):
+            dept_dict = dict(dept)
+
+            items = [
+                QTableWidgetItem(str(dept_dict.get('id', ''))),
+                QTableWidgetItem(dept_dict.get('name', '')),
+                QTableWidgetItem(self.get_department_type_text(dept_dict.get('type', 'department'))),
+                QTableWidgetItem(dept_dict.get('head_name', 'Не назначен')),
+            ]
+
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.departments_table.setItem(row, col, item)
+
+        self.departments_table.resizeColumnsToContents()
+
+    def get_department_type_text(self, dept_type):
+        """Преобразование типа подразделения в читаемый текст"""
+        types = {
+            'faculty': 'Факультет',
+            'department': 'Кафедра',
+            'group': 'Группа',
+            'root': 'Корневое'
+        }
+        return types.get(dept_type, dept_type)
+
+    def init_departments_tab(self):
+        """Инициализация вкладки управления подразделениями"""
+        layout = QVBoxLayout()
+
+        # Панель управления
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout()
+
+        self.add_dept_btn = QPushButton("➕ Добавить подразделение")
+        self.add_dept_btn.clicked.connect(self.add_department)
+        self.add_dept_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
+
+        self.edit_dept_btn = QPushButton("✏️ Редактировать")
+        self.edit_dept_btn.clicked.connect(self.edit_department)
+        self.edit_dept_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+
+        self.delete_dept_btn = QPushButton("🗑️ Удалить")
+        self.delete_dept_btn.clicked.connect(self.delete_department)
+        self.delete_dept_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+
+        controls_layout.addWidget(self.add_dept_btn)
+        controls_layout.addWidget(self.edit_dept_btn)
+        controls_layout.addWidget(self.delete_dept_btn)
+        controls_layout.addStretch()
+
+        controls_widget.setLayout(controls_layout)
+        layout.addWidget(controls_widget)
+
+        # Таблица подразделений
+        self.departments_table = QTableWidget()
+        self.departments_table.setColumnCount(4)
+        self.departments_table.setHorizontalHeaderLabels([
+            "ID", "Название", "Тип", "Начальник"
+        ])
+        self.departments_table.setColumnHidden(0, True)  # Скрываем ID
+        self.departments_table.horizontalHeader().setStretchLastSection(True)
+        self.departments_table.setAlternatingRowColors(True)
+        self.departments_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.departments_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        layout.addWidget(self.departments_table)
+
+        self.departments_tab.setLayout(layout)
+        self.refresh_departments()
+
+    def refresh_departments(self):
+        """Обновление списка подразделений"""
+        departments = self.db.get_all_departments_with_heads()
+
+        self.departments_table.setRowCount(len(departments))
+
+        for row, dept in enumerate(departments):
+            dept_dict = dict(dept)
+
+            items = [
+                QTableWidgetItem(str(dept_dict.get('id', ''))),
+                QTableWidgetItem(dept_dict.get('name', '')),
+                QTableWidgetItem(self.get_department_type_text(dept_dict.get('type', 'department'))),
+                QTableWidgetItem(dept_dict.get('head_name', '')),
+            ]
+
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.departments_table.setItem(row, col, item)
+
+        self.departments_table.resizeColumnsToContents()
+
+    def get_department_type_text(self, dept_type):
+        """Преобразование типа подразделения в читаемый текст"""
+        types = {
+            'faculty': 'Факультет',
+            'department': 'Кафедра',
+            'group': 'Группа',
+            'root': 'Корневое'
+        }
+        return types.get(dept_type, dept_type)
+
+    def add_department(self):
+        """Добавление подразделения"""
+        dialog = DepartmentDialog(db=self.db, parent=self)
+        if dialog.exec():
+            data = dialog.get_data()
+
+            # Добавляем подразделение
+            dept_id = self.db.add_department(
+                data['name'],
+                data['type'],
+                data.get('parent_id')
+            )
+
+            if dept_id:
+                # Если выбран начальник, назначаем его
+                if data.get('head_user_id'):
+                    self.db.set_department_head(dept_id, data['head_user_id'])
+
+                QMessageBox.information(self, "Успех", "Подразделение добавлено!")
+                self.refresh_departments()
+                self.load_departments_for_combo()  # Обновляем комбобоксы в других местах
+            else:
+                QMessageBox.critical(self, "Ошибка", "Не удалось добавить подразделение!")
+
+    def edit_department(self):
+        """Редактирование подразделения"""
+        selected_rows = self.departments_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Внимание", "Выберите подразделение!")
+            return
+
+        row = selected_rows[0].row()
+        dept_id = int(self.departments_table.item(row, 0).text())
+
+        # Получаем данные подразделения
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT * FROM departments WHERE id = ?', (dept_id,))
+        dept_data = dict(cursor.fetchone())
+
+        dialog = DepartmentDialog(dept_data, self.db, self)
+        if dialog.exec():
+            data = dialog.get_data()
+
+            # Обновляем подразделение
+            success = self.db.update_department(dept_id, data)
+
+            if success:
+                # Обновляем начальника
+                self.db.set_department_head(dept_id, data.get('head_user_id'))
+
+                QMessageBox.information(self, "Успех", "Подразделение обновлено!")
+                self.refresh_departments()
+                self.load_departments_for_combo()
+            else:
+                QMessageBox.critical(self, "Ошибка", "Не удалось обновить подразделение!")
+
+    def delete_department(self):
+        """Удаление подразделения"""
+        selected_rows = self.departments_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Внимание", "Выберите подразделение!")
+            return
+
+        row = selected_rows[0].row()
+        dept_name = self.departments_table.item(row, 1).text()
+        dept_id = int(self.departments_table.item(row, 0).text())
+
+        # Проверяем, есть ли связанные данные
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT COUNT(*) as count FROM applicants WHERE agitator_department = ?', (dept_name,))
+        applicants_count = cursor.fetchone()['count']
+
+        message = f"Вы уверены, что хотите удалить подразделение '{dept_name}'?"
+        if applicants_count > 0:
+            message += f"\n\n⚠️ ВНИМАНИЕ: К этому подразделению привязано {applicants_count} абитуриентов!\nИх данные останутся, но связь с подразделением будет потеряна."
+
+        reply = QMessageBox.question(
+            self, "Подтверждение",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Сначала удаляем права доступа
+            cursor.execute('DELETE FROM user_department_permissions WHERE department_id = ?', (dept_id,))
+            # Затем удаляем подразделение
+            success = self.db.delete_department(dept_id)
+
+            if success:
+                QMessageBox.information(self, "Успех", "Подразделение удалено!")
+                self.refresh_departments()
+                self.load_departments_for_combo()
+            else:
+                QMessageBox.critical(self, "Ошибка", "Не удалось удалить подразделение!")
+
+    def load_departments_for_combo(self):
+        """Обновление списка подразделений во всех комбобоксах"""
+        # Обновляем комбобокс в UserDialog при следующем открытии
+        # Здесь можно обновить глобальные ссылки, если нужно
+        pass
 
     def init_users_tab(self):
         """Инициализация вкладки пользователей"""
@@ -3115,68 +4299,12 @@ class MainWindow(QMainWindow):
 
     def import_from_excel(self):
         """Импорт данных из Excel файла"""
-        try:
-            # Выбор файла
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, 'Выберите Excel файл', '',
-                'Excel Files (*.xlsx *.xls *.xlsm);;All Files (*)'
-            )
-
-            if not file_path:
-                return
-
-            # Проверка расширения файла
-            if not file_path.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-                QMessageBox.warning(self, 'Ошибка', 'Пожалуйста, выберите файл Excel (.xlsx, .xls, .xlsm)')
-                return
-
-            # Показываем диалог
-            dialog = ImportDialog(file_path, self)
-            if dialog.exec():
-                selected_sheets = dialog.get_selected_sheets()
-                excel_password = dialog.get_excel_password()
-
-                if not selected_sheets:
-                    QMessageBox.warning(self, 'Ошибка', 'Выберите хотя бы один лист для импорта!')
-                    return
-
-                # Показываем прогресс
-                progress = QProgressDialog("Импорт данных...", "Отмена", 0, 0, self)
-                progress.setWindowTitle("Импорт")
-                progress.setWindowModality(Qt.WindowModality.WindowModal)
-                progress.show()
-
-                # Обновляем интерфейс
-                QApplication.processEvents()
-
-                try:
-                    # Импортируем данные
-                    success, message = self.import_excel_data(
-                        file_path,
-                        excel_password,
-                        selected_sheets
-                    )
-
-                    progress.close()
-
-                    if success:
-                        QMessageBox.information(self, 'Успех', message)
-                        # Обновляем данные
-                        self.refresh_data()
-                        self.stats_tab.update_statistics()
-                    else:
-                        QMessageBox.critical(self, 'Ошибка импорта', message)
-
-                except Exception as e:
-                    progress.close()
-                    QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
-                    import traceback
-                    traceback.print_exc()
-
-        except Exception as e:
-            QMessageBox.critical(self, 'Ошибка', f'Ошибка при импорте: {str(e)}')
-            import traceback
-            traceback.print_exc()
+        dialog = ImportDialog(self.db, self.user_data['id'], self)
+        if dialog.exec():
+            # Обновляем данные после импорта
+            self.refresh_data()
+            self.stats_tab.update_statistics()
+            QMessageBox.information(self, "Успех", "Данные успешно импортированы и обновлены!")
 
     @staticmethod
     def check_file_access(file_path):
@@ -3469,16 +4597,217 @@ class MainWindow(QMainWindow):
         return count > 0
 
     def export_data(self):
-        """Экспорт данных"""
+        """Экспорт данных в Excel"""
+        # Выбор файла для сохранения
         file_path, _ = QFileDialog.getSaveFileName(
             self, 'Сохранить данные',
             f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
             'Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)'
         )
 
-        if file_path:
-            # Здесь можно реализовать экспорт данных
-            QMessageBox.information(self, 'Информация', 'Экспорт данных будет реализован в следующей версии')
+        if not file_path:
+            return
+
+        # Показываем прогресс
+        progress = QProgressDialog("Экспорт данных...", "Отмена", 0, 100, self)
+        progress.setWindowTitle("Экспорт")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.show()
+        QApplication.processEvents()
+
+        try:
+            # Получаем данные для экспорта
+            if file_path.endswith('.xlsx'):
+                success = self.export_to_excel(file_path, progress)
+            elif file_path.endswith('.csv'):
+                success = self.export_to_csv(file_path, progress)
+            else:
+                # По умолчанию Excel
+                if not file_path.endswith('.xlsx'):
+                    file_path += '.xlsx'
+                success = self.export_to_excel(file_path, progress)
+
+            progress.setValue(100)
+
+            if success:
+                QMessageBox.information(self, 'Успех', f'Данные успешно экспортированы в:\n{file_path}')
+            else:
+                QMessageBox.critical(self, 'Ошибка', 'Не удалось экспортировать данные!')
+
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(self, 'Ошибка', f'Ошибка при экспорте: {str(e)}')
+            import traceback
+            traceback.print_exc()
+
+    def export_to_excel(self, file_path, progress):
+        """Экспорт в Excel с форматированием"""
+        try:
+            import pandas as pd
+            from openpyxl import load_workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+            progress.setValue(10)
+            QApplication.processEvents()
+
+            # Получаем данные из таблицы
+            data = []
+            headers = []
+
+            # Получаем заголовки (видимые колонки)
+            for col in range(self.table.columnCount()):
+                header = self.table.horizontalHeaderItem(col)
+                if header and not self.table.isColumnHidden(col):
+                    headers.append(header.text())
+
+            progress.setValue(30)
+            QApplication.processEvents()
+
+            # Получаем данные из строк
+            for row in range(self.table.rowCount()):
+                row_data = []
+                for col in range(self.table.columnCount()):
+                    if not self.table.isColumnHidden(col):
+                        item = self.table.item(row, col)
+                        row_data.append(item.text() if item else '')
+                data.append(row_data)
+
+            progress.setValue(50)
+            QApplication.processEvents()
+
+            # Создаем DataFrame
+            df = pd.DataFrame(data, columns=headers)
+
+            # Добавляем строку с итогами
+            total_row = ['ИТОГО:']
+            for col in range(1, len(headers)):
+                if headers[col] in ['Категория', 'Статус', 'Документы']:
+                    # Для текстовых полей считаем количество непустых
+                    col_data = [row[col] for row in data if row[col] and row[col].strip()]
+                    total_row.append(str(len(col_data)))
+                else:
+                    # Для числовых полей (если есть)
+                    total_row.append('')
+            df.loc[len(df)] = total_row
+
+            progress.setValue(70)
+            QApplication.processEvents()
+
+            # Сохраняем в Excel
+            df.to_excel(file_path, index=False, sheet_name='Абитуриенты')
+
+            # Форматируем Excel файл
+            wb = load_workbook(file_path)
+            ws = wb.active
+
+            # Стили
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="3498db", end_color="3498db", fill_type="solid")
+            header_alignment = Alignment(horizontal="center", vertical="center")
+
+            total_font = Font(bold=True, color="FFFFFF")
+            total_fill = PatternFill(start_color="2ecc71", end_color="2ecc71", fill_type="solid")
+
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # Применяем стили к заголовкам
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(row=1, column=col)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_alignment
+                cell.border = border
+
+                # Автоширина колонок
+                max_length = len(str(cell.value))
+                for row in range(2, ws.max_row + 1):
+                    cell_value = ws.cell(row=row, column=col).value
+                    if cell_value:
+                        max_length = max(max_length, len(str(cell_value)))
+                ws.column_dimensions[chr(64 + col)].width = min(max_length + 2, 50)
+
+            # Стиль для строки итогов
+            total_row_num = ws.max_row
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(row=total_row_num, column=col)
+                cell.font = total_font
+                cell.fill = total_fill
+                cell.alignment = Alignment(horizontal="center")
+                cell.border = border
+
+            # Сохраняем
+            wb.save(file_path)
+
+            progress.setValue(100)
+            return True
+
+        except Exception as e:
+            print(f"Ошибка экспорта в Excel: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def export_to_csv(self, file_path, progress):
+        """Экспорт в CSV"""
+        try:
+            import pandas as pd
+
+            progress.setValue(20)
+            QApplication.processEvents()
+
+            # Получаем данные из таблицы
+            data = []
+            headers = []
+
+            # Получаем заголовки (видимые колонки)
+            for col in range(self.table.columnCount()):
+                header = self.table.horizontalHeaderItem(col)
+                if header and not self.table.isColumnHidden(col):
+                    headers.append(header.text())
+
+            progress.setValue(40)
+            QApplication.processEvents()
+
+            # Получаем данные из строк
+            for row in range(self.table.rowCount()):
+                row_data = []
+                for col in range(self.table.columnCount()):
+                    if not self.table.isColumnHidden(col):
+                        item = self.table.item(row, col)
+                        row_data.append(item.text() if item else '')
+                data.append(row_data)
+
+            progress.setValue(60)
+            QApplication.processEvents()
+
+            # Добавляем строку с итогами
+            total_row = ['ИТОГО:']
+            for col in range(1, len(headers)):
+                if headers[col] in ['Категория', 'Статус', 'Документы']:
+                    col_data = [row[col] for row in data if row[col] and row[col].strip()]
+                    total_row.append(str(len(col_data)))
+                else:
+                    total_row.append('')
+            data.append(total_row)
+
+            progress.setValue(80)
+            QApplication.processEvents()
+
+            # Создаем DataFrame и сохраняем
+            df = pd.DataFrame(data, columns=headers)
+            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+
+            progress.setValue(100)
+            return True
+
+        except Exception as e:
+            print(f"Ошибка экспорта в CSV: {e}")
+            return False
 
     def closeEvent(self, event):
         """Обработка закрытия окна"""

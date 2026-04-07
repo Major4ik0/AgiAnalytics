@@ -4,3 +4,4 @@ __pycache__/
 Dockerfile
 agitation.db
 .DS_Store
+test.py

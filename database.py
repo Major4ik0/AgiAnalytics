@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import sqlite3
-import pandas as pd
-from datetime import datetime
 
 
 class Database:
@@ -199,27 +197,67 @@ class Database:
     def clean_duplicate_departments(self):
         """Очистка дублирующихся подразделений"""
         cursor = self.conn.cursor()
-
         # Находим дубликаты
         cursor.execute('''
-            SELECT name, MIN(id) as keep_id, COUNT(*) as cnt
-            FROM departments
-            WHERE type != 'root'
-            GROUP BY name
-            HAVING cnt > 1
+            SELECT name, MIN(id) as keep_id, COUNT(*) as cnt FROM departments
+            WHERE type != 'root' GROUP BY name HAVING cnt > 1
         ''')
-
         duplicates = cursor.fetchall()
 
         for dup in duplicates:
             name = dup['name']
             keep_id = dup['keep_id']
-
             # Удаляем дубликаты, оставляя один
             cursor.execute('DELETE FROM departments WHERE name = ? AND id != ?', (name, keep_id))
-
         self.conn.commit()
-        print(f"Очищено дубликатов подразделений: {len(duplicates)}")
+
+    def get_all_departments_with_heads(self):
+        """Получение всех подразделений с информацией о начальниках"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT d.*, u.full_name as head_name
+            FROM departments d
+            LEFT JOIN users u ON u.id = d.head_user_id
+            WHERE d.type != 'root'
+            ORDER BY 
+                CASE d.type
+                    WHEN 'faculty' THEN 1
+                    WHEN 'department' THEN 2
+                    WHEN 'group' THEN 3
+                    ELSE 4
+                END,
+                d.name
+        ''')
+        return cursor.fetchall()
+
+    def set_department_head(self, department_id, user_id):
+        """Назначение начальника подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('UPDATE departments SET head_user_id = ? WHERE id = ?', (user_id, department_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def update_department(self, department_id, data):
+        """Обновление подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE departments 
+            SET name = ?, type = ?, parent_id = ?
+            WHERE id = ?
+        ''', (data['name'], data['type'], data.get('parent_id'), department_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_all_users_for_head(self):
+        """Получение всех пользователей для назначения начальником (без админов)"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id, full_name, department_id 
+            FROM users 
+            WHERE role != 'admin' 
+            ORDER BY full_name
+        ''')
+        return cursor.fetchall()
 
     # ==================== РАБОТА С АБИТУРИЕНТАМИ ====================
 
@@ -256,7 +294,6 @@ class Database:
     def get_applicants(self, user_id=None, role=None, department=None, filters=None):
         """Получение списка абитуриентов с учетом прав доступа и фильтров"""
         cursor = self.conn.cursor()
-
         query = '''
             SELECT 
                 a.id,
@@ -280,73 +317,75 @@ class Database:
         '''
         params = []
 
-        if role == 'admin':
-            # Админ видит всех
-            pass
-        else:
-            # Обычный пользователь видит только своих абитуриентов
+        # Права доступа
+        if role != 'admin':
             query += ' AND a.created_by = ?'
             params.append(user_id)
-
-        # Фильтр по подразделению
-        if department and department != 'Все курсы' and department != 'Все подразделения':
+        # Фильтр по курсу агитатора (из основного фильтра)
+        if department and department not in ['Все курсы', 'Все подразделения', None]:
             query += ' AND a.agitator_course = ?'
             params.append(department)
 
-        # Расширенные фильтры
+        # РАСШИРЕННЫЕ ФИЛЬТРЫ - используем OR для разных полей
         if filters:
+            or_conditions = []
+
+            # ФИО абитуриента
             if filters.get('applicant_name'):
-                query += ' AND a.applicant_name LIKE ?'
+                or_conditions.append("a.applicant_name LIKE ?")
                 params.append(f"%{filters['applicant_name']}%")
-
+            # Регион
             if filters.get('region'):
-                query += ' AND a.region LIKE ?'
+                or_conditions.append("a.region LIKE ?")
                 params.append(f"%{filters['region']}%")
-
+            # Населенный пункт
             if filters.get('city'):
-                query += ' AND a.city LIKE ?'
+                or_conditions.append("a.city LIKE ?")
                 params.append(f"%{filters['city']}%")
-
+            # Категория
             if filters.get('category'):
-                query += ' AND a.category = ?'
+                or_conditions.append("a.category = ?")
                 params.append(filters['category'])
-
-            if filters.get('education'):
-                placeholders = ','.join(['?'] * len(filters['education']))
-                query += f' AND a.education IN ({placeholders})'
-                params.extend(filters['education'])
-
+            # Статус
             if filters.get('status'):
-                query += ' AND a.status = ?'
+                or_conditions.append("a.status = ?")
                 params.append(filters['status'])
-
+            # ФИО агитатора
             if filters.get('agitator_name'):
-                query += ' AND a.agitator_name LIKE ?'
+                or_conditions.append("a.agitator_name LIKE ?")
                 params.append(f"%{filters['agitator_name']}%")
-
+            # Подразделение агитатора
             if filters.get('agitator_department'):
-                query += ' AND a.agitator_department = ?'
+                or_conditions.append("a.agitator_department = ?")
                 params.append(filters['agitator_department'])
-
-            if 'agitator_is_cadet' in filters:
-                query += ' AND a.agitator_is_cadet = ?'
-                params.append(1 if filters['agitator_is_cadet'] else 0)
-
+            # Статус документов
             if filters.get('document_status'):
-                query += ' AND a.document_status = ?'
+                or_conditions.append("a.document_status = ?")
                 params.append(filters['document_status'])
-
-            if filters.get('agitator_course'):
-                query += ' AND a.agitator_course = ?'
+            # Курс агитатора
+            if filters.get('agitator_course') and filters['agitator_course'] not in ['все', 'Все курсы']:
+                or_conditions.append("a.agitator_course = ?")
                 params.append(filters['agitator_course'])
-
+            # Группа агитатора
             if filters.get('agitator_group'):
-                query += ' AND a.agitator_group LIKE ?'
+                or_conditions.append("a.agitator_group LIKE ?")
                 params.append(f"%{filters['agitator_group']}%")
-
+            # Тип агитатора - специальная обработка
+            if 'agitator_is_cadet' in filters:
+                or_conditions.append("a.agitator_is_cadet = ?")
+                params.append(1 if filters['agitator_is_cadet'] else 0)
+            # Образование - специальная обработка (множественный выбор)
+            if filters.get('education') and len(filters['education']) > 0:
+                placeholders = ','.join(['?'] * len(filters['education']))
+                or_conditions.append(f"a.education IN ({placeholders})")
+                params.extend(filters['education'])
+            # Если есть условия OR, добавляем их в запрос
+            if or_conditions:
+                query += " AND (" + " OR ".join(or_conditions) + ")"
         query += ' ORDER BY a.id DESC'
         cursor.execute(query, params)
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        return results
 
     def update_applicant(self, applicant_id, data):
         """Обновление данных абитуриента"""
