@@ -71,6 +71,10 @@ jobs:
             --add-data="icons/stata.png;icons" `
             --add-data="icons/settings.png;icons" `
             --add-data="icons/users.png;icons" `
+            --add-data="icons/graduation.png;icons" `
+            --add-data="icons/documents.png;icons" `
+            --add-data="icons/department.png;icons" `
+            --add-data="icons/cloud.png;icons" `
             --add-data="icons/add_user.png;icons" `
             --add-data="icons/edit_user.png;icons" `
             --add-data="icons/delete_user.png;icons" `
@@ -160,6 +164,10 @@ jobs:
             --add-data="icons/stata.png;icons" `
             --add-data="icons/settings.png;icons" `
             --add-data="icons/users.png;icons" `
+            --add-data="icons/graduation.png;icons" `
+            --add-data="icons/documents.png;icons" `
+            --add-data="icons/department.png;icons" `
+            --add-data="icons/cloud.png;icons" `
             --add-data="icons/add_user.png;icons" `
             --add-data="icons/edit_user.png;icons" `
             --add-data="icons/delete_user.png;icons" `

@@ -28,6 +28,7 @@ class Database:
                 department_id INTEGER,
                 position TEXT,
                 rank TEXT,
+                is_head BOOLEAN DEFAULT 0,  -- Добавляем поле "начальник"
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -123,6 +124,14 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
                 FOREIGN KEY (created_by) REFERENCES users(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT UNIQUE NOT NULL,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -294,94 +303,113 @@ class Database:
     def get_applicants(self, user_id=None, role=None, department=None, filters=None):
         """Получение списка абитуриентов с учетом прав доступа и фильтров"""
         cursor = self.conn.cursor()
+
         query = '''
-            SELECT 
-                a.id,
-                a.applicant_name,
-                a.region,
-                a.city,
-                a.category,
-                a.phone,
-                a.education,
-                a.status,
-                a.document_status,
-                a.agitator_department,
-                a.agitator_name,
-                a.agitator_course,
-                a.agitator_group,
-                a.agitator_rank,
-                a.agitator_is_cadet,
-                a.created_at
-            FROM applicants a
-            WHERE 1=1
-        '''
+                SELECT 
+                    a.id,
+                    a.applicant_name,
+                    a.region,
+                    a.city,
+                    a.category,
+                    a.phone,
+                    a.education,
+                    a.status,
+                    a.document_status,
+                    a.agitator_department,
+                    a.agitator_name,
+                    a.agitator_course,
+                    a.agitator_group,
+                    a.agitator_rank,
+                    a.agitator_is_cadet,
+                    a.created_at,
+                    a.updated_at
+                FROM applicants a
+                WHERE 1=1
+            '''
         params = []
 
-        # Права доступа
-        if role != 'admin':
-            query += ' AND a.created_by = ?'
-            params.append(user_id)
-        # Фильтр по курсу агитатора (из основного фильтра)
-        if department and department not in ['Все курсы', 'Все подразделения', None]:
-            query += ' AND a.agitator_course = ?'
-            params.append(department)
+        if role == 'admin':
+            # Админ видит всех
+            pass
+        else:
+            # Получаем информацию о пользователе
+            user_info = self.get_user_by_id(user_id)
+            user_dict = dict(user_info) if user_info else {}
 
-        # РАСШИРЕННЫЕ ФИЛЬТРЫ - используем OR для разных полей
+            if user_dict.get('is_head') and user_dict.get('department_id'):
+                # Начальник видит всех абитуриентов своего подразделения
+                query += ' AND a.agitator_department = (SELECT name FROM departments WHERE id = ?)'
+                params.append(user_dict['department_id'])
+            else:
+                # Обычный пользователь видит только своих абитуриентов
+                query += ' AND a.created_by = ?'
+                params.append(user_id)
+
+                # Проверяем права доступа к другим подразделениям
+                permissions = self.get_user_department_permissions(user_id)
+                if permissions:
+                    dept_names = [p['department_name'] for p in permissions if p['can_view']]
+                    if dept_names:
+                        placeholders = ','.join(['?'] * len(dept_names))
+                        query += f' OR a.agitator_department IN ({placeholders})'
+                        params.extend(dept_names)
+
         if filters:
-            or_conditions = []
+            # AND между разными полями (все условия должны выполняться)
+            and_conditions = []
 
             # ФИО абитуриента
             if filters.get('applicant_name'):
-                or_conditions.append("a.applicant_name LIKE ?")
+                and_conditions.append("a.applicant_name LIKE ?")
                 params.append(f"%{filters['applicant_name']}%")
             # Регион
             if filters.get('region'):
-                or_conditions.append("a.region LIKE ?")
+                and_conditions.append("a.region LIKE ?")
                 params.append(f"%{filters['region']}%")
             # Населенный пункт
             if filters.get('city'):
-                or_conditions.append("a.city LIKE ?")
+                and_conditions.append("a.city LIKE ?")
                 params.append(f"%{filters['city']}%")
             # Категория
             if filters.get('category'):
-                or_conditions.append("a.category = ?")
+                and_conditions.append("a.category = ?")
                 params.append(filters['category'])
             # Статус
             if filters.get('status'):
-                or_conditions.append("a.status = ?")
+                and_conditions.append("a.status = ?")
                 params.append(filters['status'])
             # ФИО агитатора
             if filters.get('agitator_name'):
-                or_conditions.append("a.agitator_name LIKE ?")
+                and_conditions.append("a.agitator_name LIKE ?")
                 params.append(f"%{filters['agitator_name']}%")
             # Подразделение агитатора
             if filters.get('agitator_department'):
-                or_conditions.append("a.agitator_department = ?")
+                and_conditions.append("a.agitator_department = ?")
                 params.append(filters['agitator_department'])
             # Статус документов
             if filters.get('document_status'):
-                or_conditions.append("a.document_status = ?")
+                and_conditions.append("a.document_status = ?")
                 params.append(filters['document_status'])
             # Курс агитатора
             if filters.get('agitator_course') and filters['agitator_course'] not in ['все', 'Все курсы']:
-                or_conditions.append("a.agitator_course = ?")
+                and_conditions.append("a.agitator_course = ?")
                 params.append(filters['agitator_course'])
             # Группа агитатора
             if filters.get('agitator_group'):
-                or_conditions.append("a.agitator_group LIKE ?")
+                and_conditions.append("a.agitator_group LIKE ?")
                 params.append(f"%{filters['agitator_group']}%")
-            # Тип агитатора - специальная обработка
+            # Тип агитатора
             if 'agitator_is_cadet' in filters:
-                or_conditions.append("a.agitator_is_cadet = ?")
+                and_conditions.append("a.agitator_is_cadet = ?")
                 params.append(1 if filters['agitator_is_cadet'] else 0)
-            # Образование - специальная обработка (множественный выбор)
+            # Образование
             if filters.get('education') and len(filters['education']) > 0:
                 placeholders = ','.join(['?'] * len(filters['education']))
-                or_conditions.append(f"a.education IN ({placeholders})")
+                and_conditions.append(f"a.education IN ({placeholders})")
                 params.extend(filters['education'])
-            # Если есть условия OR, добавляем их в запрос
-            if or_conditions:
-                query += " AND (" + " OR ".join(or_conditions) + ")"
+
+            if and_conditions:
+                query += " AND (" + " AND ".join(and_conditions) + ")"
         query += ' ORDER BY a.id DESC'
         cursor.execute(query, params)
         results = cursor.fetchall()
@@ -654,14 +682,16 @@ class Database:
         ''')
         return cursor.fetchall()
 
-    def add_user(self, username, password, full_name, role='user', department_id=None, position=None, rank=None):
+    def add_user(self, username, password, full_name, role='user', department_id=None,
+                 position=None, rank=None, is_head=False):
         """Добавление нового пользователя"""
         cursor = self.conn.cursor()
         try:
             cursor.execute('''
-                INSERT INTO users (username, password, full_name, role, department_id, position, rank) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (username, password, full_name, role, department_id, position, rank))
+                INSERT INTO users (username, password, full_name, role, department_id, 
+                                 position, rank, is_head) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (username, password, full_name, role, department_id, position, rank, is_head))
             self.conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError as e:
@@ -675,12 +705,12 @@ class Database:
             cursor.execute('''
                 UPDATE users SET
                     username = ?, password = ?, full_name = ?, 
-                    role = ?, department_id = ?, position = ?, rank = ?
+                    role = ?, department_id = ?, position = ?, rank = ?, is_head = ?
                 WHERE id = ?
             ''', (
                 data['username'], data['password'], data['full_name'],
-                data['role'], data.get('department_id'), data.get('position'), data.get('rank'),
-                user_id
+                data['role'], data.get('department_id'), data.get('position'),
+                data.get('rank'), data.get('is_head', False), user_id
             ))
             self.conn.commit()
             return cursor.rowcount > 0
@@ -785,6 +815,54 @@ class Database:
             }]
 
         return stats_list
+
+    def init_settings(self):
+        """Инициализация настроек по умолчанию"""
+        cursor = self.conn.cursor()
+
+        # Проверяем существование таблицы settings
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+        if not cursor.fetchone():
+            # Создаем таблицу settings если её нет
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+        # Дни недели для работы (пн-пт = 1,2,3,4,5, сб,вс = 0)
+        default_days = '1,2,3,4,5'  # пн-пт
+        cursor.execute('''
+            INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)
+        ''', ('work_days', default_days))
+
+        self.conn.commit()
+
+    def get_work_days(self):
+        """Получение дней недели для работы"""
+        # Проверяем существование таблицы settings
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+        if not cursor.fetchone():
+            self.init_settings()
+
+        cursor.execute('SELECT value FROM settings WHERE key = ?', ('work_days',))
+        result = cursor.fetchone()
+        if result:
+            return [int(d) for d in result['value'].split(',')]
+        return [1, 2, 3, 4, 5]  # по умолчанию пн-пт
+
+    def set_work_days(self, days):
+        """Установка дней недели для работы"""
+        cursor = self.conn.cursor()
+        days_str = ','.join([str(d) for d in days])
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', ('work_days', days_str))
+        self.conn.commit()
 
     def close(self):
         """Закрытие соединения с БД"""

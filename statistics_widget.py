@@ -592,7 +592,8 @@ class StatisticsWidget(QWidget):
         self.user_id = user_id
         self.role = role
         self.db = db
-        self.current_year = 2026  # Можно сделать выбор года
+        self.current_year = 2026
+        self.edit_plan_btn = None  # Добавляем инициализацию
         self.init_ui()
 
     def init_ui(self):
@@ -655,10 +656,9 @@ class StatisticsWidget(QWidget):
                 min-width: 200px;
             }
         """)
-        self.load_departments()
 
-        # Кнопка редактирования плана (только для админа или начальника)
-        self.edit_plan_btn = QPushButton("✏️ Редактировать план")
+        # Кнопка редактирования плана (создаем ДО load_departments)
+        self.edit_plan_btn = QPushButton("Редактировать план")
         self.edit_plan_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f39c12;
@@ -675,7 +675,7 @@ class StatisticsWidget(QWidget):
         self.edit_plan_btn.clicked.connect(self.edit_plan)
 
         # Кнопка обновления
-        self.refresh_btn = QPushButton("🔄 Обновить")
+        self.refresh_btn = QPushButton("Обновить")
         self.refresh_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
@@ -736,6 +736,9 @@ class StatisticsWidget(QWidget):
 
         main_layout.addWidget(self.info_panel)
 
+        # Загружаем подразделения ПОСЛЕ создания всех кнопок
+        self.load_departments()
+
         # Инициализация данных
         self.update_statistics()
 
@@ -744,24 +747,31 @@ class StatisticsWidget(QWidget):
         self.department_combo.clear()
 
         if self.role == 'admin':
-            # Админ видит все подразделения
             departments = self.db.get_departments()
             self.department_combo.addItem("Все подразделения")
             for dept in departments:
                 self.department_combo.addItem(dept['name'])
+            self.edit_plan_btn.setVisible(True)
         else:
-            # Обычный пользователь видит только свое подразделение
             user_info = self.db.get_user_by_id(self.user_id)
-            if user_info and user_info['department_id']:
+            user_dict = dict(user_info) if user_info else {}
+
+            if user_dict.get('is_head') and user_dict.get('department_id'):
+                # Начальник может редактировать план и видеть свое подразделение
                 cursor = self.db.conn.cursor()
-                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_info['department_id'],))
+                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
                 dept = cursor.fetchone()
                 if dept:
                     self.department_combo.addItem(dept['name'])
+                    self.edit_plan_btn.setVisible(True)
+                else:
+                    self.department_combo.addItem("Нет подразделения")
+                    self.edit_plan_btn.setVisible(False)
             else:
-                self.department_combo.addItem("Нет подразделения")
-            self.department_combo.setEnabled(False)
-            self.edit_plan_btn.setVisible(True)  # Начальник может редактировать план
+                # Обычный пользователь
+                self.department_combo.addItem("Только мои записи")
+                self.department_combo.setEnabled(False)
+                self.edit_plan_btn.setVisible(False)
 
     def on_year_changed(self, year):
         """Изменение года"""
@@ -770,6 +780,10 @@ class StatisticsWidget(QWidget):
 
     def edit_plan(self):
         """Редактирование плана"""
+        if not hasattr(self, 'edit_plan_btn') or not self.edit_plan_btn.isVisible():
+            QMessageBox.warning(self, "Внимание", "У вас нет прав на редактирование плана!")
+            return
+
         department_name = self.department_combo.currentText()
         if department_name == "Все подразделения":
             QMessageBox.warning(self, "Внимание", "Выберите конкретное подразделение для редактирования плана!")
