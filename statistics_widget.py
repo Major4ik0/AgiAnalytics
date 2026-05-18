@@ -85,12 +85,12 @@ class CourseSection(QFrame):
 
         # Основные карточки
         main_cards = [
-            ('👥 Всего', 'total', '#3498db'),
-            ('✅ Поступают', 'applying', '#2ecc71'),
-            ('❌ Отказались', 'refused', '#e74c3c'),
-            ('👨 Мужчины', 'male', '#9b59b6'),
-            ('👩 Женщины', 'female', '#e67e22'),
-            ('🎖️ Военнослужащие', 'military', '#1abc9c'),
+            ('Всего', 'total', '#3498db'),
+            ('Поступают', 'applying', '#2ecc71'),
+            ('Отказались', 'refused', '#e74c3c'),
+            ('Мужчины', 'male', '#9b59b6'),
+            ('Женщины', 'female', '#e67e22'),
+            ('Военнослужащие', 'military', '#1abc9c'),
         ]
 
         for i, (title, key, color) in enumerate(main_cards):
@@ -104,7 +104,7 @@ class CourseSection(QFrame):
 
         # Статус документов (если есть данные)
         if any(key in self.stats for key in ['doc1', 'doc2', 'doc3']):
-            docs_header = QLabel("📄 Статус документов:")
+            docs_header = QLabel("Статус документов:")
             docs_header.setStyleSheet("""
                 QLabel {
                     color: #2c3e50;
@@ -123,9 +123,9 @@ class CourseSection(QFrame):
             docs_layout.setContentsMargins(0, 10, 0, 0)
 
             doc_cards = [
-                ('📋 Формируется', 'doc1', '#f39c12'),
-                ('📤 Отправлено', 'doc2', '#8e44ad'),
-                ('📥 В ВА ВКО', 'doc3', '#16a085'),
+                ('Формируется', 'doc1', '#f39c12'),
+                ('Отправлено', 'doc2', '#8e44ad'),
+                ('В ВА ВКО', 'doc3', '#16a085'),
             ]
 
             for title, key, color in doc_cards:
@@ -242,7 +242,7 @@ class TotalStatisticsSection(QFrame):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel("📊 Общая статистика (все курсы)")
+        title_label = QLabel("Общая статистика (все курсы)")
         title_font = QFont()
         title_font.setPointSize(18)
         title_font.setBold(True)
@@ -276,12 +276,12 @@ class TotalStatisticsSection(QFrame):
 
         # Основные карточки общей статистики
         main_cards = [
-            ('👥 Всего абитуриентов', 'total', '#3498db'),
-            ('✅ Поступают', 'applying', '#2ecc71'),
-            ('❌ Отказались', 'refused', '#e74c3c'),
-            ('👨 Мужчины', 'male', '#9b59b6'),
-            ('👩 Женщины', 'female', '#e67e22'),
-            ('🎖️ Военнослужащие', 'military', '#1abc9c'),
+            ('Всего абитуриентов', 'total', '#3498db'),
+            ('Поступают', 'applying', '#2ecc71'),
+            ('Отказались', 'refused', '#e74c3c'),
+            ('Мужчины', 'male', '#9b59b6'),
+            ('Женщины', 'female', '#e67e22'),
+            ('Военнослужащие', 'military', '#1abc9c'),
         ]
 
         for i, (title, key, color) in enumerate(main_cards):
@@ -316,7 +316,7 @@ class TotalStatisticsSection(QFrame):
                 applying_layout = QVBoxLayout(applying_widget)
                 applying_layout.setContentsMargins(0, 0, 0, 0)
 
-                applying_label = QLabel("✅ Поступают")
+                applying_label = QLabel("Поступают")
                 applying_label.setStyleSheet("color: #bdc3c7; font-weight: bold; font-size: 14px;")
                 applying_layout.addWidget(applying_label)
 
@@ -337,7 +337,7 @@ class TotalStatisticsSection(QFrame):
                 refused_layout = QVBoxLayout(refused_widget)
                 refused_layout.setContentsMargins(0, 0, 0, 0)
 
-                refused_label = QLabel("❌ Отказались")
+                refused_label = QLabel("Отказались")
                 refused_label.setStyleSheet("color: #bdc3c7; font-weight: bold; font-size: 14px;")
                 refused_layout.addWidget(refused_label)
 
@@ -388,7 +388,7 @@ class EmptyStateWidget(QFrame):
             }
         """)
 
-        sub_label = QLabel("Добавьте данные через вкладку '📋 Данные абитуриентов'")
+        sub_label = QLabel("Добавьте данные через вкладку 'Данные абитуриентов'")
         sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub_label.setStyleSheet("color: #95a5a6; font-size: 13px; margin-top: 10px;")
 
@@ -514,7 +514,7 @@ class PlanDialog(QDialog):
         layout = QVBoxLayout()
 
         # Заголовок
-        title = QLabel(f"📊 План набора на {self.year} год")
+        title = QLabel(f"План набора на {self.year} год")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_font = QFont()
         title_font.setPointSize(14)
@@ -607,7 +607,7 @@ class StatisticsWidget(QWidget):
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel("📊 Статистика по подразделениям")
+        title_label = QLabel("Статистика по подразделениям")
         title_font = QFont()
         title_font.setPointSize(22)
         title_font.setBold(True)
@@ -696,6 +696,23 @@ class StatisticsWidget(QWidget):
         controls_layout.addStretch()
         controls_layout.addWidget(self.edit_plan_btn)
         controls_layout.addWidget(self.refresh_btn)
+        self.region_stats_btn = QPushButton("Статистика по регионам")
+        self.region_stats_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+        """)
+        self.region_stats_btn.clicked.connect(self.show_region_stats)
+
+        controls_layout.addWidget(self.region_stats_btn)
 
         main_layout.addWidget(controls_widget)
 
@@ -870,46 +887,38 @@ class StatisticsWidget(QWidget):
             'Ж': plan['plan_f'],
             'в/сл': plan['plan_military']
         }
-        plan_card = StatisticsCard("📋 ПЛАН", plan_values, colors)
+        plan_card = StatisticsCard("ПЛАН", plan_values, colors)
         cards_layout.addWidget(plan_card, 0, 0)
 
         # 2. Блок "Поступают"
         applying_values = {
-            'М': stats['applying_vk'] + stats['applying_ok'] + stats['applying_vavko'],
-            'Ж': 0,  # Нужно добавить в БД разделение по полу для поступающих
-            'в/сл': 0
+            'М': stats.get('applying_m', 0),  # было applying_male
+            'Ж': stats.get('applying_f', 0),  # было applying_female
+            'в/сл': stats.get('applying_mil', 0)  # было applying_military
         }
-        # TODO: Добавить в БД разделение по полу для статусов документов
-        # Пока используем общее количество
-        total_applying = stats['applying_vk'] + stats['applying_ok'] + stats['applying_vavko']
-        applying_values = {
-            'М': total_applying,
-            'Ж': 0,
-            'в/сл': 0
-        }
-        applying_card = StatisticsCard("✅ ПОСТУПАЮТ", applying_values, colors)
+        applying_card = StatisticsCard("ПОСТУПАЮТ", applying_values, colors)
         cards_layout.addWidget(applying_card, 0, 1)
 
         # 3. Блок "Дело в ВК"
         vk_values = {
-            'М': stats['applying_vk'],
-            'Ж': 0,
-            'в/сл': 0
+            'М': stats.get('vk_m', 0),
+            'Ж': stats.get('vk_f', 0),
+            'в/сл': stats.get('vk_mil', 0)
         }
-        vk_card = StatisticsCard("📄 ДЕЛО В ВК", vk_values, colors)
+        vk_card = StatisticsCard("ДЕЛО В ВК", vk_values, colors)
         cards_layout.addWidget(vk_card, 0, 2)
 
         # 4. Блок "Дело в ОК"
         ok_values = {
-            'М': stats['applying_ok'],
-            'Ж': 0,
-            'в/сл': 0
+            'М': stats.get('ok_m', 0),
+            'Ж': stats.get('ok_f', 0),
+            'в/сл': stats.get('ok_mil', 0)
         }
-        ok_card = StatisticsCard("📋 ДЕЛО В ОК", ok_values, colors)
+        ok_card = StatisticsCard("ДЕЛО В ОК", ok_values, colors)
         cards_layout.addWidget(ok_card, 0, 3)
 
         # Добавляем название подразделения
-        dept_header = QLabel(f"🏢 {department_name}")
+        dept_header = QLabel(f"{department_name}")
         dept_header.setStyleSheet("""
             QLabel {
                 font-size: 16px;
@@ -957,3 +966,239 @@ class StatisticsWidget(QWidget):
 
         widget.setMinimumHeight(300)
         return widget
+
+
+    def show_region_stats(self):
+        """Показать статистику по регионам"""
+        department_name = self.department_combo.currentText()
+
+        if department_name == "Все подразделения":
+            QMessageBox.warning(self, "Внимание",
+                                "Выберите конкретное подразделение для просмотра статистики по регионам!")
+            return
+
+        # Получаем ID подразделения
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+        result = cursor.fetchone()
+
+        if not result:
+            QMessageBox.warning(self, "Ошибка", "Подразделение не найдено!")
+            return
+
+        department_id = result['id']
+
+        # Импортируем и открываем диалог
+        dialog = RegionStatsDialog(department_name, department_id, self.db, self)
+        dialog.exec()
+
+
+# -*- coding: utf-8 -*-
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                             QTableWidget, QTableWidgetItem, QPushButton,
+                             QMessageBox, QHeaderView, QComboBox, QFrame)
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QFont, QColor
+
+
+class RegionStatsDialog(QDialog):
+    """Диалог статистики по регионам для подразделения"""
+
+    def __init__(self, department_name, department_id, db, parent=None):
+        super().__init__(parent)
+        self.department_name = department_name
+        self.department_id = department_id
+        self.db = db
+        self.setModal(True)
+        self.setWindowTitle(f'Статистика по регионам - {department_name}')
+        self.setMinimumSize(800, 600)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel(f'Статистика по регионам для подразделения "{self.department_name}"')
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
+        layout.addWidget(title)
+
+        # Панель фильтров
+        filter_widget = QFrame()
+        filter_widget.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 10px;
+            }
+        """)
+        filter_layout = QHBoxLayout(filter_widget)
+
+        filter_layout.addWidget(QLabel("Фильтр по региону:"))
+        self.region_combo = QComboBox()
+        self.region_combo.addItem("Все регионы")
+        self.load_regions()
+        self.region_combo.currentTextChanged.connect(self.load_stats)
+        filter_layout.addWidget(self.region_combo)
+        filter_layout.addStretch()
+
+        self.refresh_btn = QPushButton("Обновить")
+        self.refresh_btn.clicked.connect(self.load_stats)
+        self.refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 6px 12px;
+            }
+        """)
+        filter_layout.addWidget(self.refresh_btn)
+
+        layout.addWidget(filter_widget)
+
+        # Таблица статистики
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([
+            "Регион", "Мужчины", "Женщины", "Военнослужащие",
+            "Поступают", "Всего"
+        ])
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        layout.addWidget(self.table)
+
+        # Кнопка экспорта
+        export_btn = QPushButton("Экспортировать в CSV")
+        export_btn.clicked.connect(self.export_to_csv)
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px;
+                font-weight: bold;
+                margin-top: 10px;
+            }
+        """)
+        layout.addWidget(export_btn)
+
+        # Загружаем данные
+        self.load_stats()
+
+    def load_regions(self):
+        """Загрузка регионов для подразделения"""
+        regions = self.db.get_regions_for_department(self.department_id)
+        for region in regions:
+            self.region_combo.addItem(region['name'])
+
+    def load_stats(self):
+        """Загрузка статистики"""
+        region_name = self.region_combo.currentText()
+        region_id = None
+
+        if region_name != "Все регионы":
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT id FROM regions WHERE name = ?', (region_name,))
+            result = cursor.fetchone()
+            if result:
+                region_id = result['id']
+
+        stats = self.db.get_stats_by_region(self.department_id, region_id)
+
+        self.table.setRowCount(len(stats))
+
+        total_male = 0
+        total_female = 0
+        total_military = 0
+        total_applying = 0
+        total_all = 0
+
+        for row, stat in enumerate(stats):
+            stat_dict = dict(stat)
+
+            male = stat_dict.get('male_count', 0)
+            female = stat_dict.get('female_count', 0)
+            military = stat_dict.get('military_count', 0)
+            applying = stat_dict.get('applying_count', 0)
+            total = stat_dict.get('total_count', 0)
+
+            total_male += male
+            total_female += female
+            total_military += military
+            total_applying += applying
+            total_all += total
+
+            items = [
+                QTableWidgetItem(stat_dict.get('region_name', 'Не указан')),
+                QTableWidgetItem(str(male)),
+                QTableWidgetItem(str(female)),
+                QTableWidgetItem(str(military)),
+                QTableWidgetItem(str(applying)),
+                QTableWidgetItem(str(total)),
+            ]
+
+            for col, item in enumerate(items):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, col, item)
+
+        # Добавляем строку итогов
+        if stats:
+            self.table.insertRow(self.table.rowCount())
+            total_items = [
+                QTableWidgetItem("ИТОГО:"),
+                QTableWidgetItem(str(total_male)),
+                QTableWidgetItem(str(total_female)),
+                QTableWidgetItem(str(total_military)),
+                QTableWidgetItem(str(total_applying)),
+                QTableWidgetItem(str(total_all)),
+            ]
+            for col, item in enumerate(total_items):
+                if col == 0:
+                    item.setFont(QFont("", 10, QFont.Weight.Bold))
+                else:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(self.table.rowCount() - 1, col, item)
+
+        self.table.resizeColumnsToContents()
+
+    def export_to_csv(self):
+        """Экспорт в CSV"""
+        from PyQt5.QtWidgets import QFileDialog
+        import pandas as pd
+        from datetime import datetime
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 'Сохранить статистику',
+            f'region_stats_{self.department_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+            'CSV Files (*.csv);;All Files (*)'
+        )
+
+        if not file_path:
+            return
+
+        data = []
+        for row in range(self.table.rowCount()):
+            row_data = []
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                row_data.append(item.text() if item else '')
+            data.append(row_data)
+
+        headers = [self.table.horizontalHeaderItem(col).text()
+                   for col in range(self.table.columnCount())]
+
+        df = pd.DataFrame(data, columns=headers)
+        df.to_csv(file_path, index=False, encoding='utf-8-sig')
+
+        QMessageBox.information(self, "Успех", f"Статистика экспортирована в:\n{file_path}")

@@ -177,14 +177,7 @@ class ApplicantDialog(QDialog):
         self.region = QComboBox()
         self.region.setEditable(True)
         self.region.setPlaceholderText("Выберите или введите субъект РФ")
-        self.region.addItems([
-            "Москва", "Санкт-Петербург", "Московская область", "Ленинградская область",
-            "Краснодарский край", "Красноярский край", "Ставропольский край",
-            "Республика Татарстан", "Республика Башкортостан", "Свердловская область",
-            "Ростовская область", "Новосибирская область", "Челябинская область",
-            "Нижегородская область", "Самарская область", "Омская область",
-            "Воронежская область", "Пермский край", "Волгоградская область"
-        ])
+        self.load_regions() # Загружаем регионы из БД
         self.region.setMinimumHeight(35)
         applicant_layout.addRow("Субъект РФ:", self.region)
 
@@ -237,7 +230,7 @@ class ApplicantDialog(QDialog):
         scroll_layout.addWidget(applicant_group)
 
         # ========== БЛОК 2: ИНФОРМАЦИЯ ОБ АГИТАТОРЕ ==========
-        agitator_group = QGroupBox("👤 Информация об агитаторе")
+        agitator_group = QGroupBox("Информация об агитаторе")
         agitator_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -478,6 +471,24 @@ class ApplicantDialog(QDialog):
             self.agitator_department.addItem("")
             for dept_name in departments:
                 self.agitator_department.addItem(dept_name)
+
+    def load_regions(self):
+        """Загрузка регионов из БД"""
+        if self.db:
+            regions = self.db.get_regions()
+            self.region.clear()
+            self.region.addItem("Выберите или введите субъект РФ")
+            self.region.addItems(regions)
+        else:
+            # Данные по умолчанию
+            self.region.addItems([
+                "Москва", "Санкт-Петербург", "Московская область", "Ленинградская область",
+                "Краснодарский край", "Красноярский край", "Ставропольский край",
+                "Республика Татарстан", "Республика Башкортостан", "Свердловская область",
+                "Ростовская область", "Новосибирская область", "Челябинская область",
+                "Нижегородская область", "Самарская область", "Омская область",
+                "Воронежская область", "Пермский край", "Волгоградская область"
+            ])
 
     def on_agitator_type_changed(self):
         """Обработка изменения типа агитатора"""
@@ -772,7 +783,7 @@ class AdvancedSearchDialog(QDialog):
         scroll_layout.setSpacing(15)
 
         # ========== БЛОК 1: ИНФОРМАЦИЯ ОБ АБИТУРИЕНТЕ ==========
-        applicant_group = QGroupBox("📋 Информация об абитуриенте")
+        applicant_group = QGroupBox("Информация об абитуриенте")
         applicant_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -843,7 +854,7 @@ class AdvancedSearchDialog(QDialog):
         scroll_layout.addWidget(applicant_group)
 
         # ========== БЛОК 2: ИНФОРМАЦИЯ ОБ АГИТАТОРЕ ==========
-        agitator_group = QGroupBox("👤 Информация об агитаторе")
+        agitator_group = QGroupBox("Информация об агитаторе")
         agitator_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -884,7 +895,7 @@ class AdvancedSearchDialog(QDialog):
         scroll_layout.addWidget(agitator_group)
 
         # ========== БЛОК 3: ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ ==========
-        extra_group = QGroupBox("📅 Дополнительные параметры")
+        extra_group = QGroupBox("Дополнительные параметры")
         extra_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -954,7 +965,7 @@ class AdvancedSearchDialog(QDialog):
         )
 
         ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        ok_button.setText("🔍 Найти")
+        ok_button.setText("Найти")
         ok_button.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
@@ -970,7 +981,7 @@ class AdvancedSearchDialog(QDialog):
         """)
 
         cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
-        cancel_button.setText("❌ Отмена")
+        cancel_button.setText("Отмена")
 
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -981,10 +992,9 @@ class AdvancedSearchDialog(QDialog):
     def load_regions(self):
         """Загрузка субъектов РФ (уникальные из БД)"""
         if self.db:
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                'SELECT DISTINCT region FROM applicants WHERE region IS NOT NULL AND region != "" ORDER BY region')
-            regions = [row['region'] for row in cursor.fetchall()]
+            regions = self.db.get_regions()
+            self.region.clear()
+            self.region.addItem("Все регионы") # Добавляем опцию "Все регионы"
             self.region.addItems(regions)
         else:
             # Данные по умолчанию
@@ -1049,7 +1059,7 @@ class AdvancedSearchDialog(QDialog):
         if applicant_name:
             filters['applicant_name'] = applicant_name
         region = self.region.currentText().strip()
-        if region and region != "Выберите или введите субъект РФ":
+        if region and region != "Все регионы": # Изменено
             filters['region'] = region
         city = self.city.text().strip()
         if city:
@@ -1150,9 +1160,9 @@ class SelectionStatsDialog(QDialog):
         stats = self.calculate_stats()
 
         # Добавляем статистику
-        stats_layout.addRow("👥 Всего:", QLabel(str(stats['total'])))
-        stats_layout.addRow("✅ Поступают:", QLabel(f"{stats['applying']} ({stats['applying_percent']:.1f}%)"))
-        stats_layout.addRow("❌ Отказываются:", QLabel(f"{stats['refused']} ({stats['refused_percent']:.1f}%)"))
+        stats_layout.addRow("Всего:", QLabel(str(stats['total'])))
+        stats_layout.addRow("Поступают:", QLabel(f"{stats['applying']} ({stats['applying_percent']:.1f}%)"))
+        stats_layout.addRow("Отказываются:", QLabel(f"{stats['refused']} ({stats['refused_percent']:.1f}%)"))
 
         # Разделитель
         line = QFrame()
@@ -1160,9 +1170,9 @@ class SelectionStatsDialog(QDialog):
         line.setFrameShadow(QFrame.Shadow.Sunken)
         stats_layout.addRow(line)
 
-        stats_layout.addRow("👨 Мужчины:", QLabel(f"{stats['male']} ({stats['male_percent']:.1f}%)"))
-        stats_layout.addRow("👩 Женщины:", QLabel(f"{stats['female']} ({stats['female_percent']:.1f}%)"))
-        stats_layout.addRow("🎖️ Военнослужащие:", QLabel(f"{stats['military']} ({stats['military_percent']:.1f}%)"))
+        stats_layout.addRow("Мужчины:", QLabel(f"{stats['male']} ({stats['male_percent']:.1f}%)"))
+        stats_layout.addRow("Женщины:", QLabel(f"{stats['female']} ({stats['female_percent']:.1f}%)"))
+        stats_layout.addRow("Военнослужащие:", QLabel(f"{stats['military']} ({stats['military_percent']:.1f}%)"))
 
         # Разделитель
         line2 = QFrame()
@@ -1170,9 +1180,9 @@ class SelectionStatsDialog(QDialog):
         line2.setFrameShadow(QFrame.Shadow.Sunken)
         stats_layout.addRow(line2)
 
-        stats_layout.addRow("📋 ВК:", QLabel(str(stats['doc1'])))
-        stats_layout.addRow("📤 ОК:", QLabel(str(stats['doc2'])))
-        stats_layout.addRow("📥 ВА ВКО:", QLabel(str(stats['doc3'])))
+        stats_layout.addRow("ВК:", QLabel(str(stats['doc1'])))
+        stats_layout.addRow("ОК:", QLabel(str(stats['doc2'])))
+        stats_layout.addRow("ВА ВКО:", QLabel(str(stats['doc3'])))
 
         # Статистика по курсам (если есть разные курсы)
         if len(stats['courses']) > 1:
@@ -1182,13 +1192,13 @@ class SelectionStatsDialog(QDialog):
             stats_layout.addRow(line3)
 
             courses_text = ", ".join([f"{k}: {v}" for k, v in stats['courses'].items()])
-            stats_layout.addRow("📚 По курсам агитатора:", QLabel(courses_text))
+            stats_layout.addRow("По курсам агитатора:", QLabel(courses_text))
 
         stats_group.setLayout(stats_layout)
         layout.addWidget(stats_group)
 
         # Кнопка копирования
-        copy_btn = QPushButton("📋 Копировать статистику")
+        copy_btn = QPushButton("Копировать статистику")
         copy_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
@@ -1370,7 +1380,7 @@ class UserDialog(QDialog):
         scroll_layout.setSpacing(20)
 
         # ========== БЛОК 1: ОСНОВНАЯ ИНФОРМАЦИЯ ==========
-        main_group = QGroupBox("🔐 Основная информация")
+        main_group = QGroupBox("Основная информация")
         main_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -1432,7 +1442,7 @@ class UserDialog(QDialog):
         scroll_layout.addWidget(main_group)
 
         # ========== БЛОК 2: ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ==========
-        info_group = QGroupBox("👤 Личная информация")
+        info_group = QGroupBox("Личная информация")
         info_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -1512,7 +1522,7 @@ class UserDialog(QDialog):
         scroll_layout.addWidget(info_group)
 
         # ========== БЛОК 3: ПРАВА ДОСТУПА (только для обычных пользователей, не начальников) ==========
-        self.permissions_group = QGroupBox("🔒 Права доступа к подразделениям")
+        self.permissions_group = QGroupBox("Права доступа к подразделениям")
         self.permissions_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -1548,7 +1558,7 @@ class UserDialog(QDialog):
         buttons_widget = QWidget()
         buttons_layout = QHBoxLayout(buttons_widget)
 
-        self.select_all_btn = QPushButton("✅ Выбрать все")
+        self.select_all_btn = QPushButton("Выбрать все")
         self.select_all_btn.clicked.connect(self.select_all_permissions)
         self.select_all_btn.setStyleSheet("""
             QPushButton {
@@ -1561,7 +1571,7 @@ class UserDialog(QDialog):
             }
         """)
 
-        self.clear_all_btn = QPushButton("❌ Снять все")
+        self.clear_all_btn = QPushButton("Снять все")
         self.clear_all_btn.clicked.connect(self.clear_all_permissions)
         self.clear_all_btn.setStyleSheet("""
             QPushButton {
@@ -1632,9 +1642,6 @@ class UserDialog(QDialog):
                 background-color: #7f8c8d;
             }
         """)
-
-        button_box.accepted.connect(self.validate_and_accept)
-        button_box.rejected.connect(self.reject)
 
         main_layout.addWidget(button_box)
 
@@ -2157,7 +2164,7 @@ class ImportDialog(QDialog):
         layout.setSpacing(15)
 
         # Заголовок
-        title = QLabel("📥 Импорт данных из Excel")
+        title = QLabel("Импорт данных из Excel")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_font = title.font()
         title_font.setPointSize(16)
@@ -2196,7 +2203,7 @@ class ImportDialog(QDialog):
         self.file_label = QLabel("Файл не выбран")
         self.file_label.setStyleSheet("color: #e74c3c; padding: 5px;")
 
-        self.select_file_btn = QPushButton("📂 Выбрать файл")
+        self.select_file_btn = QPushButton("Выбрать файл")
         self.select_file_btn.clicked.connect(self.select_file)
         self.select_file_btn.setMinimumHeight(35)
 
@@ -2252,7 +2259,7 @@ class ImportDialog(QDialog):
         """)
         sheets_layout = QVBoxLayout()
 
-        self.load_sheets_btn = QPushButton("📄 Загрузить листы")
+        self.load_sheets_btn = QPushButton("Загрузить листы")
         self.load_sheets_btn.clicked.connect(self.load_sheets)
         self.load_sheets_btn.setEnabled(False)
         self.load_sheets_btn.setMinimumHeight(35)
@@ -2313,7 +2320,7 @@ class ImportDialog(QDialog):
         )
 
         self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
-        self.ok_button.setText("🚀 Начать импорт")
+        self.ok_button.setText("Начать импорт")
         self.ok_button.setEnabled(False)
         self.ok_button.setMinimumHeight(40)
         self.ok_button.setStyleSheet("""
@@ -2329,7 +2336,7 @@ class ImportDialog(QDialog):
         """)
 
         cancel_button = button_box.button(QDialogButtonBox.StandardButton.Cancel)
-        cancel_button.setText("❌ Отмена")
+        cancel_button.setText("Отмена")
         cancel_button.setMinimumHeight(40)
 
         button_box.accepted.connect(self.start_import)
@@ -2346,7 +2353,7 @@ class ImportDialog(QDialog):
 
         if file_path:
             self.file_path = file_path
-            self.file_label.setText(f"📁 {os.path.basename(file_path)}")
+            self.file_label.setText(f"{os.path.basename(file_path)}")
             self.file_label.setStyleSheet("color: #2ecc71; padding: 5px;")
             self.load_sheets_btn.setEnabled(True)
             self.reset_sheets()
@@ -2429,9 +2436,9 @@ class ImportDialog(QDialog):
             buttons_widget = QWidget()
             buttons_layout = QHBoxLayout(buttons_widget)
 
-            select_all_btn = QPushButton("✅ Выбрать все")
+            select_all_btn = QPushButton("Выбрать все")
             select_all_btn.clicked.connect(self.select_all_sheets)
-            clear_all_btn = QPushButton("❌ Снять все")
+            clear_all_btn = QPushButton("Снять все")
             clear_all_btn.clicked.connect(self.clear_all_sheets)
 
             buttons_layout.addWidget(select_all_btn)
@@ -2538,7 +2545,7 @@ class ImportDialog(QDialog):
         self.mapping_layout.addRow(info_label)
 
         # Добавляем кнопку для проверки маппинга
-        test_btn = QPushButton("🔍 Проверить маппинг")
+        test_btn = QPushButton("Проверить маппинг")
         test_btn.clicked.connect(self.test_mapping)
         self.mapping_layout.addRow(test_btn)
 
@@ -2914,7 +2921,7 @@ class MainWindow(QMainWindow):
         edit_action.triggered.connect(self.edit_applicant)
         toolbar.addAction(edit_action)
 
-        delete_action = QAction(QIcon(resource_path("icons/delete_document.png")), '️Удалить', self)
+        delete_action = QAction(QIcon(resource_path("icons/delete_document.png")), 'Удалить', self)
         delete_action.triggered.connect(self.delete_applicant)
         toolbar.addAction(delete_action)
 
@@ -2991,7 +2998,7 @@ class MainWindow(QMainWindow):
             # Показываем информацию о примененных фильтрах
             if self.advanced_filters:
                 filter_count = len(self.advanced_filters)
-                self.statusBar().showMessage(f"🔍 Применено расширенных фильтров: {filter_count}", 3000)
+                self.statusBar().showMessage(f"Применено расширенных фильтров: {filter_count}", 3000)
                 # Подсвечиваем кнопку
                 self.advanced_search_btn.setStyleSheet("""
                     QPushButton {
@@ -3128,7 +3135,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(filter_widget)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(12)  # Увеличиваем до 12 (добавляем updated_at)
+        self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels([
             "ID",  # скрытая
             "ФИО абитуриента",
@@ -3141,7 +3148,7 @@ class MainWindow(QMainWindow):
             "Документы",
             "Подразделение агитатора",
             "ФИО агитатора",
-            "Дата изменения"
+            "Дата добавления"
         ])
 
         # Настройка таблицы
@@ -3398,15 +3405,15 @@ class MainWindow(QMainWindow):
             status = applicant_dict.get('status', '')
             status_display = 'Поступает' if status == 'поступает' else 'Отказывается'
 
-            # Дата изменения
-            updated_at = applicant_dict.get('updated_at', '')
-            if updated_at:
+            # Дата добавления
+            created_at = applicant_dict.get('created_at', '')
+            if created_at:
                 try:
                     # Парсим дату из SQLite
-                    dt = datetime.fromisoformat(updated_at.replace(' ', 'T'))
+                    dt = datetime.fromisoformat(created_at.replace(' ', 'T'))
                     date_display = dt.strftime("%d.%m.%Y %H:%M")
                 except:
-                    date_display = str(updated_at)[:16]
+                    date_display = str(created_at)[:16]
             else:
                 date_display = ""
 
@@ -3495,6 +3502,11 @@ class MainWindow(QMainWindow):
         self.init_departments_tab()
         self.admin_tabs.addTab(self.departments_tab, QIcon("icons/department.png"), "Подразделения")
 
+        # Вкладка регионов (НОВАЯ)
+        self.regions_tab = QWidget()
+        self.init_regions_tab()
+        self.admin_tabs.addTab(self.regions_tab, QIcon("icons/map.png"), "Регионы")
+
         # Вкладка образования
         self.education_tab = QWidget()
         self.init_education_tab()
@@ -3509,6 +3521,15 @@ class MainWindow(QMainWindow):
         self.schedule_tab = QWidget()
         self.init_schedule_tab()
         self.admin_tabs.addTab(self.schedule_tab, QIcon("icons/cloud.png"), "Расписание")
+        # вкладка "Регионы"
+        self.regions_tab = QWidget()
+        self.init_regions_tab()
+        self.admin_tabs.addTab(self.regions_tab, "Регионы")
+
+        # Вкладка "Ответственные за регионы"
+        self.department_regions_tab = QWidget()
+        self.init_department_regions_tab()
+        self.admin_tabs.addTab(self.department_regions_tab, "Ответственные за регионы")
 
         # Вкладка прав доступа
         # self.permissions_tab = QWidget()
@@ -3517,6 +3538,200 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.admin_tabs)
         self.settings_tab.setLayout(layout)
+
+    def init_department_regions_tab(self):
+        """Инициализация вкладки управления ответственными за регионы"""
+        layout = QVBoxLayout()
+
+        # Панель управления
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout()
+
+        self.department_combo_for_regions = QComboBox()
+        self.department_combo_for_regions.addItems([d['name'] for d in self.db.get_departments()])
+        self.department_combo_for_regions.currentIndexChanged.connect(self.refresh_department_regions)
+
+        self.add_region_to_department_btn = QPushButton("Добавить регион")
+        self.add_region_to_department_btn.clicked.connect(self.add_region_to_department)
+
+        self.remove_region_from_department_btn = QPushButton("Удалить регион")
+        self.remove_region_from_department_btn.clicked.connect(self.remove_region_from_department)
+
+        controls_layout.addWidget(QLabel("Подразделение:"))
+        controls_layout.addWidget(self.department_combo_for_regions)
+        controls_layout.addWidget(self.add_region_to_department_btn)
+        controls_layout.addWidget(self.remove_region_from_department_btn)
+        controls_layout.addStretch()
+
+        controls_widget.setLayout(controls_layout)
+        layout.addWidget(controls_widget)
+
+        # Список регионов подразделения
+        self.department_regions_list = QListWidget()
+        layout.addWidget(self.department_regions_list)
+
+        self.department_regions_tab.setLayout(layout)
+        self.refresh_department_regions()
+
+    def refresh_department_regions(self):
+        """Обновление списка регионов для выбранного подразделения"""
+        department_name = self.department_combo_for_regions.currentText()
+        if not department_name:
+            return
+
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+        department = cursor.fetchone()
+        if not department:
+            return
+
+        department_id = department['id']
+        regions = self.db.get_regions_for_department(department_id)
+        self.department_regions_list.clear()
+        for region in regions:
+            self.department_regions_list.addItem(region['name'])
+
+    def add_region_to_department(self):
+        """Добавление региона к подразделению"""
+        department_name = self.department_combo_for_regions.currentText()
+        if not department_name:
+            QMessageBox.warning(self, "Внимание", "Выберите подразделение!")
+            return
+
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+        department = cursor.fetchone()
+        if not department:
+            return
+
+        department_id = department['id']
+        regions = self.db.get_regions()
+        region_name, ok = QInputDialog.getItem(self, "Добавить регион", "Выберите регион:", regions, 0, False)
+
+        if ok and region_name:
+            cursor.execute('SELECT id FROM regions WHERE name = ?', (region_name,))
+            region = cursor.fetchone()
+            if not region:
+                return
+
+            region_id = region['id']
+            self.db.add_region_to_department(department_id, region_id)
+            self.refresh_department_regions()
+
+    def remove_region_from_department(self):
+        """Удаление региона из подразделения"""
+        current_item = self.department_regions_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "Внимание", "Выберите регион для удаления!")
+            return
+
+        department_name = self.department_combo_for_regions.currentText()
+        if not department_name:
+            return
+
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
+        department = cursor.fetchone()
+        if not department:
+            return
+
+        department_id = department['id']
+        region_name = current_item.text()
+        cursor.execute('SELECT id FROM regions WHERE name = ?', (region_name,))
+        region = cursor.fetchone()
+        if not region:
+            return
+
+        region_id = region['id']
+        self.db.remove_region_from_department(department_id, region_id)
+        self.refresh_department_regions()
+
+    def init_regions_tab(self):
+        """Инициализация вкладки управления регионами"""
+        layout = QVBoxLayout()
+
+        # Панель управления
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout()
+
+        self.add_region_btn = QPushButton("Добавить регион")
+        self.add_region_btn.clicked.connect(self.add_region)
+        self.add_region_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        self.delete_region_btn = QPushButton("Удалить регион")
+        self.delete_region_btn.clicked.connect(self.delete_region)
+        self.delete_region_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+        """)
+
+        controls_layout.addWidget(self.add_region_btn)
+        controls_layout.addWidget(self.delete_region_btn)
+        controls_layout.addStretch()
+
+        controls_widget.setLayout(controls_layout)
+        layout.addWidget(controls_widget)
+
+        # Список регионов
+        self.regions_list = QListWidget()
+        self.refresh_regions_list()
+        layout.addWidget(self.regions_list)
+
+        self.regions_tab.setLayout(layout)
+
+    def refresh_regions_list(self):
+        """Обновление списка регионов"""
+        self.regions_list.clear()
+        regions = self.db.get_regions()
+        for region in regions:
+            self.regions_list.addItem(region)
+
+    def add_region(self):
+        """Добавление региона"""
+        text, ok = QInputDialog.getText(self, "Добавить регион", "Введите название региона:")
+        if ok and text.strip():
+            success = self.db.add_region(text.strip())
+            if success:
+                self.refresh_regions_list()
+                QMessageBox.information(self, "Успех", "Регион добавлен!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Такой регион уже существует!")
+
+    def delete_region(self):
+        """Удаление региона"""
+        current = self.regions_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Внимание", "Выберите регион для удаления!")
+            return
+
+        reply = QMessageBox.question(
+            self, "Подтверждение",
+            f"Удалить '{current.text()}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            success = self.db.delete_region(current.text())
+            if success:
+                self.refresh_regions_list()
+                QMessageBox.information(self, "Успех", "Регион удален!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Не удалось удалить регион!")
 
     def init_schedule_tab(self):
         """Инициализация вкладки расписания"""
@@ -3970,7 +4185,7 @@ class MainWindow(QMainWindow):
 
         message = f"Вы уверены, что хотите удалить подразделение '{dept_name}'?"
         if applicants_count > 0:
-            message += f"\n\n⚠️ ВНИМАНИЕ: К этому подразделению привязано {applicants_count} абитуриентов!\nИх данные останутся, но связь с подразделением будет потеряна."
+            message += f"\n\nВНИМАНИЕ: К этому подразделению привязано {applicants_count} абитуриентов!\nИх данные останутся, но связь с подразделением будет потеряна."
 
         reply = QMessageBox.question(
             self, "Подтверждение",
@@ -4199,40 +4414,47 @@ class MainWindow(QMainWindow):
 
         self.permissions_table.resizeColumnsToContents()
 
+    # В main.py, исправьте метод add_user:
+
     def add_user(self):
         """Добавление нового пользователя"""
         dialog = UserDialog(db=self.db, parent=self)
         if dialog.exec():
             data = dialog.get_data()
+            if data is None:
+                return
 
-            # Добавляем пользователя
-            user_id = self.db.add_user(
-                data['username'],
-                data['password'],
-                data['full_name'],
-                data['role'],
-                data['department_id'],
-                data['position'],
-                data['rank'],
-                data.get('is_head', False)  # Добавляем параметр is_head
-            )
+            # Добавляем пользователя с обработкой ошибок
+            try:
+                user_id = self.db.add_user(
+                    data['username'],
+                    data['password'],
+                    data['full_name'],
+                    data['role'],
+                    data.get('department_id'),
+                    data.get('position', ''),
+                    data.get('rank', ''),
+                    data.get('is_head', False)
+                )
 
-            if user_id:
-                # Добавляем права доступа (только для обычных пользователей, не начальников)
-                if data['role'] != 'admin' and not data.get('is_head', False):
-                    for dept_name in data['permissions']:
-                        cursor = self.db.conn.cursor()
-                        cursor.execute('SELECT id FROM departments WHERE name = ?', (dept_name,))
-                        result = cursor.fetchone()
-                        if result:
-                            self.db.add_user_department_permission(user_id, result['id'], True, False)
+                if user_id:
+                    # Добавляем права доступа (только для обычных пользователей, не начальников)
+                    if data['role'] != 'admin' and not data.get('is_head', False):
+                        for dept_name in data.get('permissions', []):
+                            cursor = self.db.conn.cursor()
+                            cursor.execute('SELECT id FROM departments WHERE name = ?', (dept_name,))
+                            result = cursor.fetchone()
+                            if result:
+                                self.db.add_user_department_permission(user_id, result['id'], True, False)
 
-                QMessageBox.information(self, 'Успех', 'Пользователь успешно добавлен!')
-                self.refresh_users()
-                self.load_users_for_combo()
-            else:
-                QMessageBox.critical(self, 'Ошибка',
-                                     'Не удалось добавить пользователя. Возможно, логин уже существует.')
+                    QMessageBox.information(self, 'Успех', 'Пользователь успешно добавлен!')
+                    self.refresh_users()
+                    self.load_users_for_combo()
+                else:
+                    QMessageBox.critical(self, 'Ошибка',
+                                         'Не удалось добавить пользователя. Возможно, логин уже существует.')
+            except Exception as e:
+                QMessageBox.critical(self, 'Ошибка', f'Произошла ошибка: {str(e)}')
 
     def edit_user(self):
         """Редактирование выбранного пользователя"""
@@ -4242,11 +4464,14 @@ class MainWindow(QMainWindow):
             return
 
         row = selected_rows[0].row()
-        username = self.users_table.item(row, 0).text()
+        user_id_item = self.users_table.item(row, 0)
+        if not user_id_item:
+            return
+        user_id = int(user_id_item.text())
 
         # Получение данных пользователя из БД
         cursor = self.db.conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
         user_data = dict(cursor.fetchone())
 
         # Добавляем название подразделения
@@ -4259,6 +4484,8 @@ class MainWindow(QMainWindow):
         dialog = UserDialog(user_data=user_data, db=self.db, parent=self)
         if dialog.exec():
             new_data = dialog.get_data()
+            if new_data is None:
+                return
 
             # Обновляем пользователя
             success = self.db.update_user(user_data['id'], new_data)
@@ -4289,7 +4516,10 @@ class MainWindow(QMainWindow):
             return
 
         row = selected_rows[0].row()
-        user_id = int(self.users_table.item(row, 0).text())
+        user_id_item = self.users_table.item(row, 0)
+        if not user_id_item:
+            return
+        user_id = int(user_id_item.text())
         username = self.users_table.item(row, 1).text()
 
         # Нельзя удалить самого себя
@@ -4346,12 +4576,12 @@ class MainWindow(QMainWindow):
 
     def add_applicant(self):
         """Добавление нового абитуриента"""
-
         if not self.check_can_add():
             QMessageBox.warning(self, "Внимание",
                                 "В выходные дни добавление записей запрещено!\n"
                                 "Пожалуйста, обратитесь к администратору.")
             return
+
         dialog = ApplicantDialog(
             applicant_data=None,
             user_role=self.user_data['role'],
@@ -4361,7 +4591,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             data = dialog.get_data()
 
-            # Проверка обязательных полей (дублируем для безопасности)
+            # Проверка обязательных полей
             if not data['applicant_name']:
                 QMessageBox.warning(self, 'Ошибка', 'ФИО абитуриента обязательно!')
                 return
@@ -4369,6 +4599,17 @@ class MainWindow(QMainWindow):
             if not data['agitator_name']:
                 QMessageBox.warning(self, 'Ошибка', 'ФИО агитатора обязательно!')
                 return
+
+            # Проверка на дубликат
+            if self.db.check_duplicate_applicant(data['applicant_name'], data['phone']):
+                reply = QMessageBox.question(
+                    self, 'Дубликат',
+                    'Абитуриент с таким ФИО и телефоном уже существует!\n'
+                    'Вы всё равно хотите добавить?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
 
             # Добавляем в БД
             self.db.add_applicant(self.user_data['id'], data)

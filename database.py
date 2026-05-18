@@ -46,6 +46,25 @@ class Database:
                 FOREIGN KEY (head_user_id) REFERENCES users(id)
             )
         ''')
+        
+        # Таблица регионов
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS regions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            )
+        ''')
+
+        # Таблица ответственных за регионы
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS department_regions (
+                department_id INTEGER NOT NULL,
+                region_id INTEGER NOT NULL,
+                PRIMARY KEY (department_id, region_id),
+                FOREIGN KEY (department_id) REFERENCES departments(id),
+                FOREIGN KEY (region_id) REFERENCES regions(id)
+            )
+        ''')
 
         # Таблица вариантов образования
         cursor.execute('''
@@ -300,6 +319,12 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
+    def check_duplicate_applicant(self, name, phone):
+        """Проверка на дубликат абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ? AND phone = ?', (name, phone))
+        return cursor.fetchone() is not None
+
     def get_applicants(self, user_id=None, role=None, department=None, filters=None):
         """Получение списка абитуриентов с учетом прав доступа и фильтров"""
         cursor = self.conn.cursor()
@@ -455,6 +480,29 @@ class Database:
 
     # ==================== РАБОТА СО СПРАВОЧНИКАМИ ====================
 
+    def get_regions(self):
+        """Получение списка регионов"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT name FROM regions ORDER BY name')
+        return [row['name'] for row in cursor.fetchall()]
+
+    def add_region(self, name):
+        """Добавление региона"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('INSERT INTO regions (name) VALUES (?)', (name,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_region(self, name):
+        """Удаление региона"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM regions WHERE name = ?', (name,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
     def get_education_types(self):
         """Получение списка типов образования"""
         cursor = self.conn.cursor()
@@ -582,6 +630,8 @@ class Database:
 
     # ==================== СТАТИСТИКА ====================
 
+    # В database.py, исправьте метод get_statistics_by_department:
+
     def get_statistics_by_department(self, department_name=None):
         """Получение статистики по подразделению с разделением по полу"""
         cursor = self.conn.cursor()
@@ -593,28 +643,30 @@ class Database:
                 COUNT(CASE WHEN status = 'поступает' AND document_status = 'ОК' THEN 1 END) as applying_ok,
                 COUNT(CASE WHEN status = 'поступает' AND document_status = 'ВА ВКО' THEN 1 END) as applying_vavko,
 
-                -- Поступают по полу
-                COUNT(CASE WHEN status = 'поступает' AND category = 'м' THEN 1 END) as applying_male,
-                COUNT(CASE WHEN status = 'поступает' AND category = 'ж' THEN 1 END) as applying_female,
-                COUNT(CASE WHEN status = 'поступает' AND category = 'всл' THEN 1 END) as applying_military,
+                -- Поступают по полу (ВНИМАНИЕ: используем правильные имена)
+                COUNT(CASE WHEN status = 'поступает' AND category = 'м' THEN 1 END) as applying_m,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'ж' THEN 1 END) as applying_f,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'всл' THEN 1 END) as applying_mil,
 
                 -- Отказались по полу
-                COUNT(CASE WHEN status = 'отказывается' AND category = 'м' THEN 1 END) as refused_male,
-                COUNT(CASE WHEN status = 'отказывается' AND category = 'ж' THEN 1 END) as refused_female,
-                COUNT(CASE WHEN status = 'отказывается' AND category = 'всл' THEN 1 END) as refused_military,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'м' THEN 1 END) as refused_m,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'ж' THEN 1 END) as refused_f,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'всл' THEN 1 END) as refused_mil,
 
-                -- Документы по полу
-                COUNT(CASE WHEN document_status = 'ВК' AND category = 'м' THEN 1 END) as vk_male,
-                COUNT(CASE WHEN document_status = 'ВК' AND category = 'ж' THEN 1 END) as vk_female,
-                COUNT(CASE WHEN document_status = 'ВК' AND category = 'всл' THEN 1 END) as vk_military,
+                -- Документы по полу (ВК)
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'м' THEN 1 END) as vk_m,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'ж' THEN 1 END) as vk_f,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'всл' THEN 1 END) as vk_mil,
 
-                COUNT(CASE WHEN document_status = 'ОК' AND category = 'м' THEN 1 END) as ok_male,
-                COUNT(CASE WHEN document_status = 'ОК' AND category = 'ж' THEN 1 END) as ok_female,
-                COUNT(CASE WHEN document_status = 'ОК' AND category = 'всл' THEN 1 END) as ok_military,
+                -- Документы по полу (ОК)
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'м' THEN 1 END) as ok_m,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'ж' THEN 1 END) as ok_f,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'всл' THEN 1 END) as ok_mil,
 
-                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'м' THEN 1 END) as vavko_male,
-                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'ж' THEN 1 END) as vavko_female,
-                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'всл' THEN 1 END) as vavko_military,
+                -- Документы по полу (ВА ВКО)
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'м' THEN 1 END) as vavko_m,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'ж' THEN 1 END) as vavko_f,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'всл' THEN 1 END) as vavko_mil,
 
                 -- Общее количество
                 COUNT(*) as total
@@ -632,25 +684,27 @@ class Database:
 
         if result:
             return dict(result)
+
+        # Возвращаем пустую статистику с правильными ключами
         return {
             'applying_vk': 0,
             'applying_ok': 0,
             'applying_vavko': 0,
-            'applying_male': 0,
-            'applying_female': 0,
-            'applying_military': 0,
-            'refused_male': 0,
-            'refused_female': 0,
-            'refused_military': 0,
-            'vk_male': 0,
-            'vk_female': 0,
-            'vk_military': 0,
-            'ok_male': 0,
-            'ok_female': 0,
-            'ok_military': 0,
-            'vavko_male': 0,
-            'vavko_female': 0,
-            'vavko_military': 0,
+            'applying_m': 0,
+            'applying_f': 0,
+            'applying_mil': 0,
+            'refused_m': 0,
+            'refused_f': 0,
+            'refused_mil': 0,
+            'vk_m': 0,
+            'vk_f': 0,
+            'vk_mil': 0,
+            'ok_m': 0,
+            'ok_f': 0,
+            'ok_mil': 0,
+            'vavko_m': 0,
+            'vavko_f': 0,
+            'vavko_mil': 0,
             'total': 0
         }
 
@@ -868,3 +922,81 @@ class Database:
         """Закрытие соединения с БД"""
         if self.conn:
             self.conn.close()
+
+    # Добавьте эти методы в класс Database в database.py:
+
+    def get_regions_for_department(self, department_id):
+        """Получение регионов для подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT r.id, r.name 
+            FROM department_regions dr
+            JOIN regions r ON r.id = dr.region_id
+            WHERE dr.department_id = ?
+            ORDER BY r.name
+        ''', (department_id,))
+        return cursor.fetchall()
+
+    def add_region_to_department(self, department_id, region_id):
+        """Назначение региона подразделению"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO department_regions (department_id, region_id)
+                VALUES (?, ?)
+            ''', (department_id, region_id))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_region_from_department(self, department_id, region_id):
+        """Удаление региона из подразделения"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            DELETE FROM department_regions 
+            WHERE department_id = ? AND region_id = ?
+        ''', (department_id, region_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_stats_by_region(self, department_id=None, region_id=None):
+        """Статистика по регионам для подразделения"""
+        cursor = self.conn.cursor()
+
+        query = '''
+            SELECT 
+                r.name as region_name,
+                COUNT(CASE WHEN a.category = 'м' THEN 1 END) as male_count,
+                COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female_count,
+                COUNT(CASE WHEN a.category = 'всл' THEN 1 END) as military_count,
+                COUNT(CASE WHEN a.status = 'поступает' THEN 1 END) as applying_count,
+                COUNT(CASE WHEN a.status = 'отказывается' THEN 1 END) as refused_count,
+                COUNT(*) as total_count
+            FROM applicants a
+            LEFT JOIN regions r ON a.region = r.name
+            WHERE 1=1
+        '''
+        params = []
+
+        if department_id:
+            query += ' AND a.agitator_department = (SELECT name FROM departments WHERE id = ?)'
+            params.append(department_id)
+
+        if region_id:
+            query += ' AND r.id = ?'
+            params.append(region_id)
+
+        query += ' GROUP BY r.name ORDER BY total_count DESC'
+
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
+    def check_duplicate_applicant(self, name, phone):
+        """Проверка на дубликат абитуриента"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT id FROM applicants 
+            WHERE applicant_name = ? AND phone = ?
+        ''', (name, phone))
+        return cursor.fetchone() is not None

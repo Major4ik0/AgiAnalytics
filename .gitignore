@@ -5,3 +5,4 @@ Dockerfile
 agitation.db
 .DS_Store
 test.py
+test_data.xlsx
