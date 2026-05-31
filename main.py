@@ -1468,7 +1468,7 @@ class UserDialog(QDialog):
         self.department = QComboBox()
         self.department.setEditable(True)
         self.department.setMinimumHeight(35)
-        self.load_departments()  # Загружаем подразделения
+        self.load_departments()
         info_form.addRow("Подразделение:", self.department)
 
         # Должность
@@ -1498,7 +1498,7 @@ class UserDialog(QDialog):
         self.rank.setMinimumHeight(35)
         info_form.addRow("Звание:", self.rank)
 
-        # Чекбокс "Начальник подразделения" (только для обычных пользователей, не админов)
+        # Чекбокс "Начальник подразделения"
         self.is_head_checkbox = QCheckBox("Начальник подразделения")
         self.is_head_checkbox.setStyleSheet("""
             QCheckBox {
@@ -1521,7 +1521,7 @@ class UserDialog(QDialog):
         info_group.setLayout(info_form)
         scroll_layout.addWidget(info_group)
 
-        # ========== БЛОК 3: ПРАВА ДОСТУПА (только для обычных пользователей, не начальников) ==========
+        # ========== БЛОК 3: ПРАВА ДОСТУПА ==========
         self.permissions_group = QGroupBox("Права доступа к подразделениям")
         self.permissions_group.setStyleSheet("""
             QGroupBox {
@@ -1542,19 +1542,16 @@ class UserDialog(QDialog):
 
         permissions_layout = QVBoxLayout()
 
-        # Пояснение
         info_label = QLabel("Выберите подразделения, к которым пользователь будет иметь доступ:")
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #7f8c8d; font-size: 11px; margin-bottom: 10px;")
         permissions_layout.addWidget(info_label)
 
-        # Чекбоксы для подразделений
         self.permissions_widget = QWidget()
         self.permissions_grid = QGridLayout(self.permissions_widget)
         self.permissions_grid.setSpacing(10)
         self.permission_checkboxes = []
 
-        # Кнопки быстрого выбора
         buttons_widget = QWidget()
         buttons_layout = QHBoxLayout(buttons_widget)
 
@@ -1609,6 +1606,7 @@ class UserDialog(QDialog):
             QDialogButtonBox.StandardButton.Cancel
         )
 
+        # ВАЖНО: правильное подключение сигналов
         ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
         ok_button.setText("Сохранить")
         ok_button.setStyleSheet("""
@@ -1642,6 +1640,10 @@ class UserDialog(QDialog):
                 background-color: #7f8c8d;
             }
         """)
+
+        # ПОДКЛЮЧАЕМ ПРАВИЛЬНЫЕ СИГНАЛЫ
+        button_box.accepted.connect(self.validate_and_accept)  # Сохранение с валидацией
+        button_box.rejected.connect(self.reject)  # Отмена - просто закрываем
 
         main_layout.addWidget(button_box)
 
@@ -3532,9 +3534,9 @@ class MainWindow(QMainWindow):
         self.admin_tabs.addTab(self.department_regions_tab, "Ответственные за регионы")
 
         # Вкладка прав доступа
-        # self.permissions_tab = QWidget()
-        # self.init_permissions_tab()
-        # self.admin_tabs.addTab(self.permissions_tab, "Права доступа")
+        self.permissions_tab = QWidget()
+        self.init_permissions_tab()
+        self.admin_tabs.addTab(self.permissions_tab, "Права доступа")
 
         layout.addWidget(self.admin_tabs)
         self.settings_tab.setLayout(layout)
@@ -4245,7 +4247,7 @@ class MainWindow(QMainWindow):
 
         # Таблица пользователей (добавляем колонку "Начальник")
         self.users_table = QTableWidget()
-        self.users_table.setColumnCount(7)
+        self.users_table.setColumnCount(8)
         self.users_table.setHorizontalHeaderLabels([
             "ID", "Логин", "ФИО", "Роль", "Подразделение", "Должность", "Звание", "Начальник"
         ])
