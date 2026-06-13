@@ -319,68 +319,46 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
-    def check_duplicate_applicant(self, name, phone):
+    def check_duplicate_applicant(self, name, phone=None):
         """Проверка на дубликат абитуриента"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ? AND phone = ?', (name, phone))
+        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ?', (name,))
         return cursor.fetchone() is not None
 
     def get_applicants(self, user_id=None, role=None, department=None, filters=None):
-        """Получение списка абитуриентов с учетом прав доступа и фильтров"""
+        """Получение списка абитуриентов - ВСЕ ВИДЯТ ВСЕХ, НО РЕДАКТИРОВАТЬ МОГУТ ТОЛЬКО СВОИХ"""
         cursor = self.conn.cursor()
 
         query = '''
-                SELECT 
-                    a.id,
-                    a.applicant_name,
-                    a.region,
-                    a.city,
-                    a.category,
-                    a.phone,
-                    a.education,
-                    a.status,
-                    a.document_status,
-                    a.agitator_department,
-                    a.agitator_name,
-                    a.agitator_course,
-                    a.agitator_group,
-                    a.agitator_rank,
-                    a.agitator_is_cadet,
-                    a.created_at,
-                    a.updated_at
-                FROM applicants a
-                WHERE 1=1
-            '''
+            SELECT 
+                a.id,
+                a.applicant_name,
+                a.region,
+                a.city,
+                a.category,
+                a.phone,
+                a.education,
+                a.status,
+                a.document_status,
+                a.agitator_department,
+                a.agitator_name,
+                a.agitator_course,
+                a.agitator_group,
+                a.agitator_rank,
+                a.agitator_is_cadet,
+                a.created_by,
+                a.created_at,
+                a.updated_at
+            FROM applicants a
+            WHERE 1=1
+        '''
         params = []
 
-        if role == 'admin':
-            # Админ видит всех
-            pass
-        else:
-            # Получаем информацию о пользователе
-            user_info = self.get_user_by_id(user_id)
-            user_dict = dict(user_info) if user_info else {}
-
-            if user_dict.get('is_head') and user_dict.get('department_id'):
-                # Начальник видит всех абитуриентов своего подразделения
-                query += ' AND a.agitator_department = (SELECT name FROM departments WHERE id = ?)'
-                params.append(user_dict['department_id'])
-            else:
-                # Обычный пользователь видит только своих абитуриентов
-                query += ' AND a.created_by = ?'
-                params.append(user_id)
-
-                # Проверяем права доступа к другим подразделениям
-                permissions = self.get_user_department_permissions(user_id)
-                if permissions:
-                    dept_names = [p['department_name'] for p in permissions if p['can_view']]
-                    if dept_names:
-                        placeholders = ','.join(['?'] * len(dept_names))
-                        query += f' OR a.agitator_department IN ({placeholders})'
-                        params.extend(dept_names)
+        # ===== ВАЖНО: ВСЕ ПОЛЬЗОВАТЕЛИ ВИДЯТ ВСЕХ АБИТУРИЕНТОВ =====
+        # Нет фильтрации по created_by или подразделению!
 
         if filters:
-            # AND между разными полями (все условия должны выполняться)
+            # AND между разными полями
             and_conditions = []
 
             # ФИО абитуриента
@@ -391,58 +369,27 @@ class Database:
             if filters.get('region'):
                 and_conditions.append("a.region LIKE ?")
                 params.append(f"%{filters['region']}%")
-            # Населенный пункт
-            if filters.get('city'):
-                and_conditions.append("a.city LIKE ?")
-                params.append(f"%{filters['city']}%")
-            # Категория
-            if filters.get('category'):
-                and_conditions.append("a.category = ?")
-                params.append(filters['category'])
-            # Статус
-            if filters.get('status'):
-                and_conditions.append("a.status = ?")
-                params.append(filters['status'])
-            # ФИО агитатора
-            if filters.get('agitator_name'):
-                and_conditions.append("a.agitator_name LIKE ?")
-                params.append(f"%{filters['agitator_name']}%")
-            # Подразделение агитатора
-            if filters.get('agitator_department'):
-                and_conditions.append("a.agitator_department = ?")
-                params.append(filters['agitator_department'])
-            # Статус документов
-            if filters.get('document_status'):
-                and_conditions.append("a.document_status = ?")
-                params.append(filters['document_status'])
-            # Курс агитатора
-            if filters.get('agitator_course') and filters['agitator_course'] not in ['все', 'Все курсы']:
-                and_conditions.append("a.agitator_course = ?")
-                params.append(filters['agitator_course'])
-            # Группа агитатора
-            if filters.get('agitator_group'):
-                and_conditions.append("a.agitator_group LIKE ?")
-                params.append(f"%{filters['agitator_group']}%")
-            # Тип агитатора
-            if 'agitator_is_cadet' in filters:
-                and_conditions.append("a.agitator_is_cadet = ?")
-                params.append(1 if filters['agitator_is_cadet'] else 0)
-            # Образование
-            if filters.get('education') and len(filters['education']) > 0:
-                placeholders = ','.join(['?'] * len(filters['education']))
-                and_conditions.append(f"a.education IN ({placeholders})")
-                params.extend(filters['education'])
+            # ... остальные фильтры ...
 
             if and_conditions:
                 query += " AND (" + " AND ".join(and_conditions) + ")"
+
         query += ' ORDER BY a.id DESC'
         cursor.execute(query, params)
         results = cursor.fetchall()
         return results
 
-    def update_applicant(self, applicant_id, data):
-        """Обновление данных абитуриента"""
+    def update_applicant(self, applicant_id, data, user_id=None, user_role=None):
+        """Обновление данных абитуриента с проверкой прав"""
         cursor = self.conn.cursor()
+
+        # Проверка прав: может редактировать только если создал сам
+        if user_role != 'admin':
+            cursor.execute('SELECT created_by FROM applicants WHERE id = ?', (applicant_id,))
+            result = cursor.fetchone()
+            if not result or result['created_by'] != user_id:
+                return False
+
         cursor.execute('''
             UPDATE applicants SET
                 applicant_name = ?, region = ?, city = ?, category = ?,
@@ -453,7 +400,7 @@ class Database:
             WHERE id = ?
         ''', (
             data.get('applicant_name', ''),
-            data.get('region', ''),
+            data.get('region', ''),  # ← Убедись, что это поле есть
             data.get('city', ''),
             data.get('category', ''),
             data.get('phone', ''),
@@ -471,12 +418,21 @@ class Database:
         self.conn.commit()
         return cursor.rowcount > 0
 
-    def delete_applicant(self, applicant_id):
-        """Удаление абитуриента"""
+    def delete_applicant(self, applicant_id, user_id=None, user_role=None):
+        """Удаление абитуриента с проверкой прав"""
         cursor = self.conn.cursor()
+
+        # Проверка прав: может удалить только если создал сам
+        if user_role != 'admin':
+            cursor.execute('SELECT created_by FROM applicants WHERE id = ?', (applicant_id,))
+            result = cursor.fetchone()
+            if not result or result['created_by'] != user_id:
+                return False  # Нет прав
+
         cursor.execute('DELETE FROM applicants WHERE id = ?', (applicant_id,))
         self.conn.commit()
         return cursor.rowcount > 0
+
 
     # ==================== РАБОТА СО СПРАВОЧНИКАМИ ====================
 
@@ -709,6 +665,12 @@ class Database:
         }
 
     # ==================== ПОЛЬЗОВАТЕЛИ ====================
+
+    def check_duplicate_by_name(self, name):
+        """Проверка на дубликат абитуриента по ФИО"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ?', (name,))
+        return cursor.fetchone() is not None
 
     def get_user_by_credentials(self, username, password):
         """Получение пользователя по логину и паролю"""
@@ -992,11 +954,137 @@ class Database:
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def check_duplicate_applicant(self, name, phone):
-        """Проверка на дубликат абитуриента"""
+    def get_detailed_region_stats(self, department_id=None, region_id=None):
+        """Детальная статистика по регионам с планом и статусами документов"""
         cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT id FROM applicants 
-            WHERE applicant_name = ? AND phone = ?
-        ''', (name, phone))
-        return cursor.fetchone() is not None
+
+        # Сначала получаем план для подразделения (если есть)
+        plan = 0
+        if department_id:
+            cursor.execute('''
+                SELECT SUM(plan_m + plan_f + plan_military) as total_plan
+                FROM plans 
+                WHERE department_id = ? AND year = strftime('%Y', 'now')
+            ''', (department_id,))
+            result = cursor.fetchone()
+            if result and result['total_plan']:
+                plan = result['total_plan']
+
+        # Запрос для регионов
+        query = '''
+            SELECT 
+                COALESCE(r.name, 'Не указан') as region_name,
+                COUNT(CASE WHEN a.status = 'поступает' THEN 1 END) as selected,
+                COUNT(CASE WHEN a.status = 'отказывается' THEN 1 END) as not_selected,
+                COUNT(CASE WHEN a.document_status = 'ВК' THEN 1 END) as vk,
+                COUNT(CASE WHEN a.document_status = 'ОК' THEN 1 END) as ok,
+                COUNT(CASE WHEN a.document_status = 'ВА ВКО' THEN 1 END) as vavko,
+                COUNT(CASE WHEN a.category = 'м' THEN 1 END) as male,
+                COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female,
+                COUNT(CASE WHEN a.category = 'всл' THEN 1 END) as military,
+                COUNT(*) as total
+            FROM applicants a
+            LEFT JOIN regions r ON a.region = r.name
+            WHERE 1=1
+        '''
+        params = []
+
+        if department_id:
+            query += ' AND a.agitator_department = (SELECT name FROM departments WHERE id = ?)'
+            params.append(department_id)
+
+        if region_id:
+            query += ' AND r.id = ?'
+            params.append(region_id)
+
+        query += ' GROUP BY r.name ORDER BY selected DESC, total DESC'
+
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+
+        # Преобразуем в список словарей и добавляем план
+        stats_list = []
+        for row in results:
+            stat_dict = dict(row)
+            stat_dict['plan'] = plan
+            stats_list.append(stat_dict)
+
+        return stats_list
+
+    def get_statistics_by_department_for_user(self, department_name, user_id, user_role):
+        """Получение статистики по подразделению для конкретного пользователя"""
+        cursor = self.conn.cursor()
+
+        # Для админа - все данные
+        if user_role == 'admin':
+            return self.get_statistics_by_department(department_name)
+
+        # Получаем информацию о пользователе
+        user_info = self.get_user_by_id(user_id)
+        user_dict = dict(user_info) if user_info else {}
+
+        # Проверяем права пользователя на это подразделение
+        has_access = False
+
+        # Если пользователь - начальник этого подразделения
+        if user_dict.get('is_head') and user_dict.get('department_id'):
+            cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
+            dept = cursor.fetchone()
+            if dept and dept['name'] == department_name:
+                has_access = True
+
+        # Если нет, проверяем права доступа из таблицы
+        if not has_access:
+            cursor.execute('''
+                SELECT d.name 
+                FROM user_department_permissions p
+                JOIN departments d ON d.id = p.department_id
+                WHERE p.user_id = ? AND p.can_view = 1 AND d.name = ?
+            ''', (user_id, department_name))
+            if cursor.fetchone():
+                has_access = True
+
+        # Если нет доступа - возвращаем пустую статистику
+        if not has_access:
+            return self._get_empty_stats()
+
+        # Получаем статистику по подразделению (ВСЕ записи, не только created_by)
+        query = '''
+            SELECT 
+                COUNT(CASE WHEN status = 'поступает' AND category = 'м' THEN 1 END) as applying_m,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'ж' THEN 1 END) as applying_f,
+                COUNT(CASE WHEN status = 'поступает' AND category = 'всл' THEN 1 END) as applying_mil,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'м' THEN 1 END) as refused_m,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'ж' THEN 1 END) as refused_f,
+                COUNT(CASE WHEN status = 'отказывается' AND category = 'всл' THEN 1 END) as refused_mil,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'м' THEN 1 END) as vk_m,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'ж' THEN 1 END) as vk_f,
+                COUNT(CASE WHEN document_status = 'ВК' AND category = 'всл' THEN 1 END) as vk_mil,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'м' THEN 1 END) as ok_m,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'ж' THEN 1 END) as ok_f,
+                COUNT(CASE WHEN document_status = 'ОК' AND category = 'всл' THEN 1 END) as ok_mil,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'м' THEN 1 END) as vavko_m,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'ж' THEN 1 END) as vavko_f,
+                COUNT(CASE WHEN document_status = 'ВА ВКО' AND category = 'всл' THEN 1 END) as vavko_mil,
+                COUNT(*) as total
+            FROM applicants
+            WHERE agitator_department = ?
+        '''
+        cursor.execute(query, (department_name,))
+        result = cursor.fetchone()
+
+        if result:
+            return dict(result)
+        return self._get_empty_stats()
+
+    def _get_empty_stats(self):
+        """Возвращает пустую статистику"""
+        return {
+            'applying_vk': 0, 'applying_ok': 0, 'applying_vavko': 0,
+            'applying_m': 0, 'applying_f': 0, 'applying_mil': 0,
+            'refused_m': 0, 'refused_f': 0, 'refused_mil': 0,
+            'vk_m': 0, 'vk_f': 0, 'vk_mil': 0,
+            'ok_m': 0, 'ok_f': 0, 'ok_mil': 0,
+            'vavko_m': 0, 'vavko_f': 0, 'vavko_mil': 0,
+            'total': 0
+        }

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QPushButton, QScrollArea, QFrame,
-                             QGridLayout, QSizePolicy)
-from PyQt5.QtCore import Qt, pyqtSignal
+                             QGridLayout, QSizePolicy, QToolButton, QTableWidget, QTableWidgetItem, QFileDialog,
+                             QProgressBar)
+from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QMessageBox
 
@@ -18,8 +19,9 @@ class CourseSection(QFrame):
 
     def init_ui(self):
         self.setFrameStyle(QFrame.Shape.StyledPanel)
+        # ИСПРАВЛЕНО: Применяем стиль строго к CourseSection, чтобы дочерние элементы не наследовались
         self.setStyleSheet("""
-            QFrame {
+            CourseSection {
                 background-color: white;
                 border-radius: 10px;
                 border: 1px solid #e0e0e0;
@@ -41,8 +43,8 @@ class CourseSection(QFrame):
         course_layout.setContentsMargins(0, 0, 0, 0)
         course_layout.setSpacing(10)
 
-        icon_label = QLabel("🎓")
-        icon_label.setStyleSheet("font-size: 24px;")
+        icon_label = QLabel()
+        icon_label.setStyleSheet("font-size: 24px; background: transparent; border: none;")
         course_layout.addWidget(icon_label)
 
         course_label = QLabel(self.course_name)
@@ -50,13 +52,13 @@ class CourseSection(QFrame):
         course_font.setPointSize(16)
         course_font.setBold(True)
         course_label.setFont(course_font)
-        course_label.setStyleSheet("color: #2c3e50;")
+        course_label.setStyleSheet("color: #2c3e50; background: transparent; border: none;")
         course_layout.addWidget(course_label)
 
         # Если есть факультет, добавляем его
         if self.stats.get('faculty'):
             faculty_label = QLabel(f"({self.stats.get('faculty')})")
-            faculty_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
+            faculty_label.setStyleSheet("color: #7f8c8d; font-size: 14px; background: transparent; border: none;")
             course_layout.addWidget(faculty_label)
 
         header_layout.addWidget(course_container)
@@ -71,6 +73,7 @@ class CourseSection(QFrame):
                 border-radius: 12px;
                 padding: 6px 12px;
                 font-weight: bold;
+                border: none;
             }
         """)
         header_layout.addWidget(total_badge)
@@ -86,7 +89,7 @@ class CourseSection(QFrame):
         # Основные карточки
         main_cards = [
             ('Всего', 'total', '#3498db'),
-            ('Поступают', 'applying', '#2ecc71'),
+            ('Отобраны', 'applying', '#2ecc71'),
             ('Отказались', 'refused', '#e74c3c'),
             ('Мужчины', 'male', '#9b59b6'),
             ('Женщины', 'female', '#e67e22'),
@@ -161,8 +164,10 @@ class CourseSection(QFrame):
         for title, labels, data, colors in charts:
             if sum(data) > 0:
                 chart_container = QFrame()
+                # ИСПРАВЛЕНО: Убираем влияние на внутренние QLabel (добавили ID или имя объекта)
+                chart_container.setObjectName("ChartContainer")
                 chart_container.setStyleSheet("""
-                    QFrame {
+                    QFrame#ChartContainer {
                         background-color: #f8f9fa;
                         border-radius: 8px;
                         border: 1px solid #e9ecef;
@@ -180,6 +185,8 @@ class CourseSection(QFrame):
                         font-weight: bold;
                         color: #495057;
                         margin-bottom: 10px;
+                        border: none;
+                        background: transparent;
                     }
                 """)
                 chart_inner.addWidget(chart_title)
@@ -195,11 +202,11 @@ class CourseSection(QFrame):
                         item_layout = QHBoxLayout(item_widget)
                         item_layout.setContentsMargins(5, 2, 5, 2)
 
-                        color_indicator = QLabel("⬤")
-                        color_indicator.setStyleSheet(f"color: {color}; font-size: 10px;")
+                        color_indicator = QLabel()
+                        color_indicator.setStyleSheet(f"color: {color}; font-size: 10px; border: none; background: transparent;")
 
                         label_text = QLabel(f"{label}: {value}")
-                        label_text.setStyleSheet("color: #6c757d; font-size: 12px;")
+                        label_text.setStyleSheet("color: #6c757d; font-size: 12px; border: none; background: transparent;")
 
                         item_layout.addWidget(color_indicator)
                         item_layout.addWidget(label_text)
@@ -213,6 +220,114 @@ class CourseSection(QFrame):
         if chart_layout.count() > 0:
             chart_layout.addStretch()
             layout.addWidget(chart_widget)
+
+
+class StatisticsCard(QFrame):
+    """Карточка статистики - упрощенная версия"""
+
+    def __init__(self, title, values, colors, parent=None):
+        super().__init__(parent)
+        self.title = title
+        if isinstance(values, dict):
+            self.is_dict = True
+            self.values_dict = values
+            self.value = None
+        else:
+            self.is_dict = False
+            self.values_dict = None
+            self.value = values
+        self.colors = colors
+        self.init_ui()
+
+    def init_ui(self):
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        # ИСПРАВЛЕНО: Применяем стиль конкретно к классу StatisticsCard
+        self.setStyleSheet("""
+            StatisticsCard {
+                background-color: white;
+                border-radius: 10px;
+                border: 1px solid #e0e0e0;
+            }
+            StatisticsCard:hover {
+                background-color: #f8f9fa;
+                border-color: #3498db;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        # Заголовок
+        title_label = QLabel(self.title)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: #2c3e50;")
+        layout.addWidget(title_label)
+
+        # Разделитель
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("background-color: #ecf0f1; max-height: 1px;")
+        layout.addWidget(line)
+
+        if self.is_dict:
+            # Отображаем словарь значений
+            for key, value in self.values_dict.items():
+                value_widget = QWidget()
+                value_layout = QHBoxLayout(value_widget)
+                value_layout.setContentsMargins(5, 2, 5, 2)
+
+                indicator = QLabel()
+                indicator.setStyleSheet(f"color: {self.colors.get(key, '#95a5a6')}; font-size: 12px;")
+
+                name_label = QLabel(key)
+                name_label.setStyleSheet("color: #7f8c8d; font-size: 11px;")
+
+                value_label = QLabel(str(value))
+                value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+                value_label.setStyleSheet("color: #2c3e50; font-size: 14px; font-weight: bold;")
+
+                value_layout.addWidget(indicator)
+                value_layout.addWidget(name_label)
+                value_layout.addStretch()
+                value_layout.addWidget(value_label)
+
+                layout.addWidget(value_widget)
+
+            # Итого
+            total = sum(self.values_dict.values())
+            total_widget = QWidget()
+            total_layout = QHBoxLayout(total_widget)
+            total_layout.setContentsMargins(5, 5, 5, 0)
+
+            total_label = QLabel("ИТОГО:")
+            total_label.setStyleSheet("color: #2c3e50; font-weight: bold; font-size: 10px;")
+
+            total_value = QLabel(str(total))
+            total_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+            total_value.setStyleSheet("color: #3498db; font-size: 14px; font-weight: bold;")
+
+            total_layout.addWidget(total_label)
+            total_layout.addStretch()
+            total_layout.addWidget(total_value)
+
+            layout.addWidget(total_widget)
+        else:
+            # Простое значение
+            value_label = QLabel(str(self.value))
+            value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            value_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #3498db;")
+            layout.addWidget(value_label)
+
+        self.setMinimumWidth(140)
 
 
 class TotalStatisticsSection(QFrame):
@@ -277,7 +392,7 @@ class TotalStatisticsSection(QFrame):
         # Основные карточки общей статистики
         main_cards = [
             ('Всего абитуриентов', 'total', '#3498db'),
-            ('Поступают', 'applying', '#2ecc71'),
+            ('Отобраны', 'applying', '#2ecc71'),
             ('Отказались', 'refused', '#e74c3c'),
             ('Мужчины', 'male', '#9b59b6'),
             ('Женщины', 'female', '#e67e22'),
@@ -370,7 +485,7 @@ class EmptyStateWidget(QFrame):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_label = QLabel("📊")
+        icon_label = QLabel("")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_font = QFont()
         icon_font.setPointSize(48)
@@ -399,100 +514,6 @@ class EmptyStateWidget(QFrame):
         layout.addStretch()
 
         self.setMinimumHeight(300)
-
-
-
-class StatisticsCard(QFrame):
-    """Карточка статистики"""
-
-    def __init__(self, title, values, colors, parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.values = values  # {'М': 10, 'Ж': 5, 'в/сл': 3}
-        self.colors = colors  # {'М': '#3498db', 'Ж': '#e67e22', 'в/сл': '#2ecc71'}
-        self.init_ui()
-
-    def init_ui(self):
-        self.setFrameStyle(QFrame.Shape.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 12px;
-                border: 1px solid #e0e0e0;
-            }
-            QFrame:hover {
-                background-color: #f8f9fa;
-                border-color: #3498db;
-            }
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-
-        # Заголовок
-        title_label = QLabel(self.title)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setStyleSheet("color: #2c3e50; margin-bottom: 5px;")
-        layout.addWidget(title_label)
-
-        # Разделитель
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: #ecf0f1;")
-        layout.addWidget(line)
-
-        # Значения
-        for key, value in self.values.items():
-            value_widget = QWidget()
-            value_layout = QHBoxLayout(value_widget)
-            value_layout.setContentsMargins(5, 2, 5, 2)
-
-            # Цветной индикатор
-            indicator = QLabel("●")
-            indicator.setStyleSheet(f"color: {self.colors.get(key, '#95a5a6')}; font-size: 14px;")
-
-            # Название
-            name_label = QLabel(key)
-            name_label.setStyleSheet("color: #7f8c8d; font-size: 13px;")
-
-            # Значение
-            value_label = QLabel(str(value))
-            value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-            value_label.setStyleSheet("color: #2c3e50; font-size: 16px; font-weight: bold;")
-
-            value_layout.addWidget(indicator)
-            value_layout.addWidget(name_label)
-            value_layout.addStretch()
-            value_layout.addWidget(value_label)
-
-            layout.addWidget(value_widget)
-
-        # Итого
-        total = sum(self.values.values())
-        total_widget = QWidget()
-        total_layout = QHBoxLayout(total_widget)
-        total_layout.setContentsMargins(5, 8, 5, 5)
-
-        total_label = QLabel("ИТОГО:")
-        total_label.setStyleSheet("color: #2c3e50; font-weight: bold; font-size: 13px;")
-
-        total_value = QLabel(str(total))
-        total_value.setAlignment(Qt.AlignmentFlag.AlignRight)
-        total_value.setStyleSheet("color: #3498db; font-size: 16px; font-weight: bold;")
-
-        total_layout.addWidget(total_label)
-        total_layout.addStretch()
-        total_layout.addWidget(total_value)
-
-        layout.addWidget(total_widget)
-
-        self.setMinimumWidth(180)
 
 
 class PlanDialog(QDialog):
@@ -584,6 +605,320 @@ class PlanDialog(QDialog):
             QMessageBox.critical(self, "Ошибка", "Не удалось сохранить план!")
 
 
+class ExpandableDepartmentCard(QFrame):
+    """Раскрывающаяся карточка подразделения"""
+
+    def __init__(self, department_name, stats, plan, parent=None):
+        super().__init__(parent)
+        self.department_name = department_name
+        self.stats = stats
+        self.plan = plan
+        self.is_expanded = False
+        self.animation_duration = 300
+        self.init_ui()
+
+    def init_ui(self):
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border-radius: 12px;
+                border: 1px solid #e0e0e0;
+                margin: 5px;
+            }
+            QFrame:hover {
+                border-color: #3498db;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+        """)
+
+        # Основной layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # Заголовок карточки (всегда виден)
+        self.header_widget = QWidget()
+        self.header_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header_widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+            }
+            QWidget:hover {
+                background-color: #f8f9fa;
+            }
+        """)
+
+        header_layout = QHBoxLayout(self.header_widget)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+        header_layout.setSpacing(15)
+
+        # Кнопка раскрытия
+        self.expand_btn = QToolButton()
+        self.expand_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.expand_btn.setStyleSheet("""
+            QToolButton {
+                border: none;
+                background-color: #3498db;
+                border-radius: 4px;
+                color: white;
+                font-weight: bold;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        self.expand_btn.setFixedSize(24, 24)
+        self.expand_btn.clicked.connect(self.toggle_expand)
+        header_layout.addWidget(self.expand_btn)
+
+        # Иконка подразделения
+        icon_label = QLabel()
+        icon_label.setStyleSheet("font-size: 28px;")
+        header_layout.addWidget(icon_label)
+
+        # Название подразделения
+        name_label = QLabel(self.department_name)
+        name_font = QFont()
+        name_font.setPointSize(14)
+        name_font.setBold(True)
+        name_label.setFont(name_font)
+        name_label.setStyleSheet("color: #2c3e50;")
+        header_layout.addWidget(name_label)
+
+        header_layout.addStretch()
+
+        # Краткая статистика (всегда видна)
+        quick_stats_widget = QWidget()
+        quick_stats_layout = QHBoxLayout(quick_stats_widget)
+        quick_stats_layout.setSpacing(20)
+        quick_stats_layout.setContentsMargins(0, 0, 0, 0)
+
+        # План
+        total_plan = self.plan.get('plan_m', 0) + self.plan.get('plan_f', 0) + self.plan.get('plan_military', 0)
+        if total_plan > 0:
+            quick_stats_layout.addWidget(self._create_stat_badge("План", total_plan, "#f39c12"))
+
+        # Всего абитуриентов
+        total = self.stats.get('total', 0)
+        quick_stats_layout.addWidget(self._create_stat_badge("Всего", total, "#3498db"))
+
+        # Отобраны
+        applying = self.stats.get('applying_m', 0) + self.stats.get('applying_f', 0) + self.stats.get('applying_mil', 0)
+        quick_stats_layout.addWidget(self._create_stat_badge("Отобраны", applying, "#2ecc71"))
+
+        # Процент выполнения
+        if total_plan > 0:
+            percent = int((applying / total_plan) * 100) if total_plan > 0 else 0
+            quick_stats_layout.addWidget(self._create_percent_badge(percent))
+
+        quick_stats_layout.addStretch()
+        header_layout.addWidget(quick_stats_widget)
+
+        self.main_layout.addWidget(self.header_widget)
+
+        # Контентная часть (скрыта по умолчанию)
+        self.content_widget = QWidget()
+        self.content_widget.setVisible(False)
+        self.content_widget.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border-bottom-left-radius: 12px;
+                border-bottom-right-radius: 12px;
+            }
+        """)
+
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(20, 15, 20, 20)
+        content_layout.setSpacing(15)
+
+        # Добавляем детальную статистику
+        self._add_detailed_stats(content_layout)
+
+        self.main_layout.addWidget(self.content_widget)
+
+    def _create_stat_badge(self, label, value, color):
+        """Создание бейджа со статистикой"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+
+        label_widget = QLabel(label)
+        label_widget.setStyleSheet(f"""
+            QLabel {{
+                color: #7f8c8d;
+                font-size: 11px;
+                font-weight: normal;
+            }}
+        """)
+
+        value_widget = QLabel(str(value))
+        value_widget.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        """)
+
+        layout.addWidget(label_widget)
+        layout.addWidget(value_widget)
+
+        return widget
+
+    def _create_percent_badge(self, percent):
+        """Создание бейджа с процентом выполнения"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Цвет в зависимости от процента
+        if percent >= 80:
+            color = "#2ecc71"
+        elif percent >= 50:
+            color = "#f39c12"
+        else:
+            color = "#e74c3c"
+
+        value_widget = QLabel(f"{percent}%")
+        value_widget.setStyleSheet(f"""
+            QLabel {{
+                background-color: {color};
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 4px 8px;
+                border-radius: 12px;
+            }}
+        """)
+
+        layout.addWidget(value_widget)
+        return widget
+
+    def _add_detailed_stats(self, layout):
+        """Добавление детальной статистики"""
+
+        # Блок с карточками (как было в display_department_stats)
+        cards_widget = QWidget()
+        cards_layout = QGridLayout(cards_widget)
+        cards_layout.setSpacing(15)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+
+        colors = {
+            'М': '#3498db',
+            'Ж': '#e67e22',
+            'в/сл': '#2ecc71'
+        }
+
+        # План
+        plan_values = {
+            'М': self.plan.get('plan_m', 0),
+            'Ж': self.plan.get('plan_f', 0),
+            'в/сл': self.plan.get('plan_military', 0)
+        }
+        plan_card = StatisticsCard("ПЛАН", plan_values, colors)
+        cards_layout.addWidget(plan_card, 0, 0)
+
+        # Отобраны
+        applying_values = {
+            'М': self.stats.get('applying_m', 0),
+            'Ж': self.stats.get('applying_f', 0),
+            'в/сл': self.stats.get('applying_mil', 0)
+        }
+        applying_card = StatisticsCard("ОТОБРАНЫ", applying_values, colors)
+        cards_layout.addWidget(applying_card, 0, 1)
+
+        # Дело в ВК
+        vk_values = {
+            'М': self.stats.get('vk_m', 0),
+            'Ж': self.stats.get('vk_f', 0),
+            'в/сл': self.stats.get('vk_mil', 0)
+        }
+        vk_card = StatisticsCard("ДЕЛО В ВК", vk_values, colors)
+        cards_layout.addWidget(vk_card, 0, 2)
+
+        # Дело в ОК
+        ok_values = {
+            'М': self.stats.get('ok_m', 0),
+            'Ж': self.stats.get('ok_f', 0),
+            'в/сл': self.stats.get('ok_mil', 0)
+        }
+        ok_card = StatisticsCard("ДЕЛО В ОК", ok_values, colors)
+        cards_layout.addWidget(ok_card, 0, 3)
+
+        layout.addWidget(cards_widget)
+
+        # Добавляем кнопку "Статистика по регионам"
+        region_btn = QPushButton("Статистика по регионам")
+        region_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+        """)
+        region_btn.clicked.connect(self.show_region_stats)
+        layout.addWidget(region_btn)
+
+    def show_region_stats(self):
+        """Показать статистику по регионам для этого подразделения"""
+        # Получаем ID подразделения
+        cursor = self.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (self.department_name,))
+        result = cursor.fetchone()
+
+        if result:
+            # Получаем роль родительского виджета
+            parent_widget = self.window()
+            if hasattr(parent_widget, 'role'):
+                role = parent_widget.role
+            else:
+                role = 'admin'
+            dialog = RegionStatsDialog(self.department_name, result['id'], self.db, role, self.window())
+            dialog.exec()
+
+    def toggle_expand(self):
+        """Переключение раскрытия карточки"""
+        self.is_expanded = not self.is_expanded
+
+        if self.is_expanded:
+            self.expand_btn.setArrowType(Qt.ArrowType.DownArrow)
+            self.content_widget.setVisible(True)
+            # Анимация появления
+            self.content_widget.setMaximumHeight(0)
+            self.animation = QPropertyAnimation(self.content_widget, b"maximumHeight")
+            self.animation.setDuration(300)
+            self.animation.setStartValue(0)
+            self.animation.setEndValue(self.content_widget.sizeHint().height())
+            self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.animation.start()
+        else:
+            self.expand_btn.setArrowType(Qt.ArrowType.RightArrow)
+            # Анимация скрытия
+            self.animation = QPropertyAnimation(self.content_widget, b"maximumHeight")
+            self.animation.setDuration(300)
+            self.animation.setStartValue(self.content_widget.height())
+            self.animation.setEndValue(0)
+            self.animation.setEasingCurve(QEasingCurve.Type.InCubic)
+            self.animation.finished.connect(lambda: self.content_widget.setVisible(False))
+            self.animation.start()
+
+    # Этот метод нужно добавить, чтобы передать db в карточку
+    def set_db(self, db):
+        self.db = db
+
+
 class StatisticsWidget(QWidget):
     """Главный виджет статистики"""
 
@@ -593,7 +928,7 @@ class StatisticsWidget(QWidget):
         self.role = role
         self.db = db
         self.current_year = 2026
-        self.edit_plan_btn = None  # Добавляем инициализацию
+        self.cards = []  # Список карточек
         self.init_ui()
 
     def init_ui(self):
@@ -613,7 +948,6 @@ class StatisticsWidget(QWidget):
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: #2c3e50;")
-
         title_layout.addWidget(title_label)
         title_layout.addStretch()
 
@@ -623,56 +957,18 @@ class StatisticsWidget(QWidget):
         self.year_combo.addItems(["2024", "2025", "2026", "2027", "2028"])
         self.year_combo.setCurrentText(str(self.current_year))
         self.year_combo.currentTextChanged.connect(self.on_year_changed)
-
-        title_layout.addWidget(year_label)
-        title_layout.addWidget(self.year_combo)
-
-        main_layout.addWidget(title_container)
-
-        # Панель управления
-        controls_widget = QFrame()
-        controls_widget.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 8px;
-                border: 1px solid #e0e0e0;
-                padding: 15px;
-            }
-        """)
-
-        controls_layout = QHBoxLayout(controls_widget)
-        controls_layout.setSpacing(15)
-
-        # Подразделение
-        dept_label = QLabel("Подразделение:")
-        dept_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        self.department_combo = QComboBox()
-        self.department_combo.setStyleSheet("""
+        self.year_combo.setStyleSheet("""
             QComboBox {
-                padding: 8px;
+                padding: 6px 12px;
                 border: 1px solid #bdc3c7;
                 border-radius: 6px;
                 background-color: white;
-                min-width: 200px;
+                min-width: 100px;
             }
         """)
 
-        # Кнопка редактирования плана (создаем ДО load_departments)
-        self.edit_plan_btn = QPushButton("Редактировать план")
-        self.edit_plan_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f39c12;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #e67e22;
-            }
-        """)
-        self.edit_plan_btn.clicked.connect(self.edit_plan)
+        title_layout.addWidget(year_label)
+        title_layout.addWidget(self.year_combo)
 
         # Кнопка обновления
         self.refresh_btn = QPushButton("Обновить")
@@ -690,33 +986,25 @@ class StatisticsWidget(QWidget):
             }
         """)
         self.refresh_btn.clicked.connect(self.update_statistics)
+        title_layout.addWidget(self.refresh_btn)
 
-        controls_layout.addWidget(dept_label)
-        controls_layout.addWidget(self.department_combo)
-        controls_layout.addStretch()
-        controls_layout.addWidget(self.edit_plan_btn)
-        controls_layout.addWidget(self.refresh_btn)
-        self.region_stats_btn = QPushButton("Статистика по регионам")
-        self.region_stats_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #9b59b6;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8e44ad;
+        main_layout.addWidget(title_container)
+
+        # Краткая сводка (общая статистика)
+        self.summary_widget = QFrame()
+        self.summary_widget.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2c3e50, stop:1 #34495e);
+                border-radius: 12px;
+                padding: 15px;
             }
         """)
-        self.region_stats_btn.clicked.connect(self.show_region_stats)
+        summary_layout = QHBoxLayout(self.summary_widget)
+        summary_layout.setSpacing(30)
+        main_layout.addWidget(self.summary_widget)
 
-        controls_layout.addWidget(self.region_stats_btn)
-
-        main_layout.addWidget(controls_widget)
-
-        # Область с прокруткой для статистики
+        # Область с прокруткой для карточек
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("""
@@ -728,227 +1016,157 @@ class StatisticsWidget(QWidget):
 
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setSpacing(20)
+        self.scroll_layout.setSpacing(10)
         self.scroll_layout.setContentsMargins(5, 5, 5, 5)
 
         self.scroll_area.setWidget(self.scroll_content)
         main_layout.addWidget(self.scroll_area)
 
-        # Информационная панель
-        self.info_panel = QFrame()
-        self.info_panel.setStyleSheet("""
-            QFrame {
-                background-color: #e8f4fc;
-                border-radius: 8px;
-                border: 1px solid #b3e0ff;
-                padding: 12px;
-            }
-        """)
-        self.info_panel.setVisible(False)
-
-        info_layout = QHBoxLayout(self.info_panel)
-        self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: #2c3e50; font-size: 13px;")
-        info_layout.addWidget(self.info_label)
-
-        main_layout.addWidget(self.info_panel)
-
-        # Загружаем подразделения ПОСЛЕ создания всех кнопок
-        self.load_departments()
-
         # Инициализация данных
         self.update_statistics()
 
-    def load_departments(self):
-        """Загрузка подразделений"""
-        self.department_combo.clear()
+    def update_summary(self, departments_stats):
+        """Обновление общей сводки"""
+        # Очищаем старую сводку
+        while self.summary_widget.layout().count():
+            item = self.summary_widget.layout().takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        if self.role == 'admin':
-            departments = self.db.get_departments()
-            self.department_combo.addItem("Все подразделения")
-            for dept in departments:
-                self.department_combo.addItem(dept['name'])
-            self.edit_plan_btn.setVisible(True)
-        else:
-            user_info = self.db.get_user_by_id(self.user_id)
-            user_dict = dict(user_info) if user_info else {}
+        summary_layout = self.summary_widget.layout()
 
-            if user_dict.get('is_head') and user_dict.get('department_id'):
-                # Начальник может редактировать план и видеть свое подразделение
-                cursor = self.db.conn.cursor()
-                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
-                dept = cursor.fetchone()
-                if dept:
-                    self.department_combo.addItem(dept['name'])
-                    self.edit_plan_btn.setVisible(True)
-                else:
-                    self.department_combo.addItem("Нет подразделения")
-                    self.edit_plan_btn.setVisible(False)
-            else:
-                # Обычный пользователь
-                self.department_combo.addItem("Только мои записи")
-                self.department_combo.setEnabled(False)
-                self.edit_plan_btn.setVisible(False)
+        total_applicants = sum(s.get('total', 0) for s in departments_stats)
+        total_applying = sum(
+            s.get('applying_m', 0) + s.get('applying_f', 0) + s.get('applying_mil', 0) for s in departments_stats)
+        total_plans = 0
 
-    def on_year_changed(self, year):
-        """Изменение года"""
-        self.current_year = int(year)
-        self.update_statistics()
+        # Получаем планы
+        for dept in self.db.get_departments():
+            plan = self.db.get_plan(dept['id'], self.current_year)
+            total_plans += plan.get('plan_m', 0) + plan.get('plan_f', 0) + plan.get('plan_military', 0)
 
-    def edit_plan(self):
-        """Редактирование плана"""
-        if not hasattr(self, 'edit_plan_btn') or not self.edit_plan_btn.isVisible():
-            QMessageBox.warning(self, "Внимание", "У вас нет прав на редактирование плана!")
-            return
+        # Создаем виджеты сводки
+        summary_items = [
+            ("️Всего подразделений", len(departments_stats), "#3498db"),
+            ("Всего абитуриентов", total_applicants, "#3498db"),
+            ("Отобрано", total_applying, "#2ecc71"),
+            ("План набора", total_plans, "#f39c12"),
+        ]
 
-        department_name = self.department_combo.currentText()
-        if department_name == "Все подразделения":
-            QMessageBox.warning(self, "Внимание", "Выберите конкретное подразделение для редактирования плана!")
-            return
+        if total_plans > 0:
+            percent = int((total_applying / total_plans) * 100) if total_plans > 0 else 0
+            percent_color = "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"
+            summary_items.append((f"Выполнение плана", f"{percent}%", percent_color))
 
-        # Получаем ID подразделения
-        cursor = self.db.conn.cursor()
-        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
-        result = cursor.fetchone()
+        for label, value, color in summary_items:
+            item_widget = QWidget()
+            item_layout = QVBoxLayout(item_widget)
+            item_layout.setContentsMargins(10, 5, 10, 5)
 
-        if not result:
-            QMessageBox.warning(self, "Ошибка", "Подразделение не найдено!")
-            return
+            label_widget = QLabel(label)
+            label_widget.setStyleSheet("color: #bdc3c7; font-size: 12px;")
 
-        department_id = result['id']
+            value_widget = QLabel(str(value))
+            value_widget.setStyleSheet(f"""
+                QLabel {{
+                    color: {color};
+                    font-size: 24px;
+                    font-weight: bold;
+                }}
+            """)
 
-        # Получаем текущий план
-        current_plan = self.db.get_plan(department_id, self.current_year)
+            item_layout.addWidget(label_widget)
+            item_layout.addWidget(value_widget)
+            summary_layout.addWidget(item_widget)
 
-        # Открываем диалог редактирования
-        dialog = PlanDialog(department_id, department_name, current_plan, self.current_year, self.db, self)
-        if dialog.exec():
-            self.update_statistics()
+        summary_layout.addStretch()
 
     def update_statistics(self):
         """Обновление статистики"""
-        # Очистка предыдущих данных
+        # Очистка предыдущих карточек
+        for card in self.cards:
+            card.deleteLater()
+        self.cards.clear()
+
         while self.scroll_layout.count():
             item = self.scroll_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        department_name = self.department_combo.currentText()
-
-        if department_name == "Все подразделения":
-            self.display_all_departments_stats()
-        else:
-            self.display_department_stats(department_name)
-
-        # Добавляем растягивающийся элемент
-        self.scroll_layout.addStretch()
-
-    def display_all_departments_stats(self):
-        """Отображение статистики по всем подразделениям"""
         departments = self.db.get_departments()
+        departments_stats = []
 
-        for dept in departments:
-            self.display_department_stats(dept['name'])
+        if self.role == 'admin':
+            # Админ видит все подразделения
+            for dept in departments:
+                stats = self.db.get_statistics_by_department(dept['name'])
+                plan = self.db.get_plan(dept['id'], self.current_year)
+                departments_stats.append(stats)
 
-        if not departments:
-            empty_widget = self.create_empty_widget("Нет данных по подразделениям")
+                card = ExpandableDepartmentCard(dept['name'], stats, plan)
+                card.set_db(self.db)
+                self.cards.append(card)
+                self.scroll_layout.addWidget(card)
+        else:
+            # Не-админ: определяем, какие подразделения может видеть пользователь
+            user_info = self.db.get_user_by_id(self.user_id)
+            user_dict = dict(user_info) if user_info else {}
+
+            # Получаем подразделения, к которым у пользователя есть доступ
+            allowed_departments = []
+
+            # Если пользователь - начальник подразделения
+            if user_dict.get('is_head') and user_dict.get('department_id'):
+                # Находим подразделение по ID
+                for dept in departments:
+                    if dept['id'] == user_dict['department_id']:
+                        allowed_departments.append(dept)
+                        break
+
+            # Получаем права доступа из таблицы user_department_permissions
+            permissions = self.db.get_user_department_permissions(self.user_id)
+            for perm in permissions:
+                if perm['can_view']:
+                    for dept in departments:
+                        if dept['id'] == perm['department_id'] and dept not in allowed_departments:
+                            allowed_departments.append(dept)
+
+            # Если нет прав ни на одно подразделение, показываем пустое состояние
+            if not allowed_departments:
+                empty_widget = self._create_empty_widget("У вас нет доступа к подразделениям")
+                self.scroll_layout.addWidget(empty_widget)
+                self.scroll_layout.addStretch()
+                return
+
+            # Показываем только разрешенные подразделения
+            for dept in allowed_departments:
+                stats = self.db.get_statistics_by_department_for_user(dept['name'], self.user_id, self.role)
+                plan = self.db.get_plan(dept['id'], self.current_year)
+                departments_stats.append(stats)
+
+                card = ExpandableDepartmentCard(dept['name'], stats, plan)
+                card.set_db(self.db)
+                self.cards.append(card)
+                self.scroll_layout.addWidget(card)
+
+        # Обновляем сводку
+        self.update_summary(departments_stats)
+
+        if not departments_stats and self.role != 'admin':
+            empty_widget = self._create_empty_widget("У вас нет доступа к подразделениям")
             self.scroll_layout.addWidget(empty_widget)
 
-    def display_department_stats(self, department_name):
-        """Отображение статистики по одному подразделению"""
-        # Получаем статистику из БД
-        stats = self.db.get_statistics_by_department(department_name)
+        self.scroll_layout.addStretch()
 
-        # Получаем план
-        cursor = self.db.conn.cursor()
-        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
-        result = cursor.fetchone()
-
-        plan = {'plan_m': 0, 'plan_f': 0, 'plan_military': 0}
-        if result:
-            plan = self.db.get_plan(result['id'], self.current_year)
-
-        # Создаем карточки
-        cards_widget = QWidget()
-        cards_layout = QGridLayout(cards_widget)
-        cards_layout.setSpacing(15)
-        cards_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Цвета для категорий
-        colors = {
-            'М': '#3498db',
-            'Ж': '#e67e22',
-            'в/сл': '#2ecc71'
-        }
-
-        # 1. Блок "План"
-        plan_values = {
-            'М': plan['plan_m'],
-            'Ж': plan['plan_f'],
-            'в/сл': plan['plan_military']
-        }
-        plan_card = StatisticsCard("ПЛАН", plan_values, colors)
-        cards_layout.addWidget(plan_card, 0, 0)
-
-        # 2. Блок "Поступают"
-        applying_values = {
-            'М': stats.get('applying_m', 0),  # было applying_male
-            'Ж': stats.get('applying_f', 0),  # было applying_female
-            'в/сл': stats.get('applying_mil', 0)  # было applying_military
-        }
-        applying_card = StatisticsCard("ПОСТУПАЮТ", applying_values, colors)
-        cards_layout.addWidget(applying_card, 0, 1)
-
-        # 3. Блок "Дело в ВК"
-        vk_values = {
-            'М': stats.get('vk_m', 0),
-            'Ж': stats.get('vk_f', 0),
-            'в/сл': stats.get('vk_mil', 0)
-        }
-        vk_card = StatisticsCard("ДЕЛО В ВК", vk_values, colors)
-        cards_layout.addWidget(vk_card, 0, 2)
-
-        # 4. Блок "Дело в ОК"
-        ok_values = {
-            'М': stats.get('ok_m', 0),
-            'Ж': stats.get('ok_f', 0),
-            'в/сл': stats.get('ok_mil', 0)
-        }
-        ok_card = StatisticsCard("ДЕЛО В ОК", ok_values, colors)
-        cards_layout.addWidget(ok_card, 0, 3)
-
-        # Добавляем название подразделения
-        dept_header = QLabel(f"{department_name}")
-        dept_header.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-                color: #2c3e50;
-                padding: 10px;
-                background-color: #ecf0f1;
-                border-radius: 8px;
-            }
-        """)
-
-        # Собираем все в контейнер
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(10)
-        container_layout.addWidget(dept_header)
-        container_layout.addWidget(cards_widget)
-
-        self.scroll_layout.addWidget(container)
-
-    def create_empty_widget(self, message):
+    def _create_empty_widget(self, message):
         """Создание виджета для пустого состояния"""
-        from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel
         widget = QFrame()
         widget.setFrameStyle(QFrame.Shape.NoFrame)
 
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_label = QLabel("📊")
+        icon_label = QLabel()
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_font = QFont()
         icon_font.setPointSize(48)
@@ -959,148 +1177,571 @@ class StatisticsWidget(QWidget):
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message_label.setStyleSheet("color: #7f8c8d; font-size: 16px;")
 
+        sub_label = QLabel("Добавьте подразделения в настройках администратора")
+        sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub_label.setStyleSheet("color: #95a5a6; font-size: 13px; margin-top: 10px;")
+
         layout.addStretch()
         layout.addWidget(icon_label)
         layout.addWidget(message_label)
+        layout.addWidget(sub_label)
         layout.addStretch()
 
         widget.setMinimumHeight(300)
         return widget
 
-
-    def show_region_stats(self):
-        """Показать статистику по регионам"""
-        department_name = self.department_combo.currentText()
-
-        if department_name == "Все подразделения":
-            QMessageBox.warning(self, "Внимание",
-                                "Выберите конкретное подразделение для просмотра статистики по регионам!")
-            return
-
-        # Получаем ID подразделения
-        cursor = self.db.conn.cursor()
-        cursor.execute('SELECT id FROM departments WHERE name = ?', (department_name,))
-        result = cursor.fetchone()
-
-        if not result:
-            QMessageBox.warning(self, "Ошибка", "Подразделение не найдено!")
-            return
-
-        department_id = result['id']
-
-        # Импортируем и открываем диалог
-        dialog = RegionStatsDialog(department_name, department_id, self.db, self)
-        dialog.exec()
+    def on_year_changed(self, year):
+        """Изменение года"""
+        self.current_year = int(year)
+        self.update_statistics()
 
 
-# -*- coding: utf-8 -*-
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QTableWidget, QTableWidgetItem, QPushButton,
-                             QMessageBox, QHeaderView, QComboBox, QFrame)
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
+class RegionCard(QFrame):
+    """Карточка региона"""
+
+    def __init__(self, region_name, stats, parent=None):
+        super().__init__(parent)
+        self.region_name = region_name if region_name and region_name != "Не указан" else "Регион не указан"
+        self.stats = stats
+        self.is_expanded = False
+        self.animation = None
+        self.init_ui()
+
+    def init_ui(self):
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        # Исправлено: применяем стиль только к конкретному классу карточки, чтобы дочерние QLabel не ломались
+        self.setStyleSheet("""
+            RegionCard {
+                background-color: white;
+                border-radius: 12px;
+                border: 1px solid #e0e0e0;
+            }
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # ========== ЗАГОЛОВОК ==========
+        self.header_widget = QWidget()
+        self.header_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header_widget.setMinimumHeight(70)
+        # Исправлено: селектор только для непосредственного виджета хедера
+        self.header_widget.setStyleSheet("""
+            QWidget#HeaderWidget {
+                background-color: #ffffff;
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+            }
+            QWidget#HeaderWidget:hover {
+                background-color: #f8f9fa;
+            }
+        """)
+        self.header_widget.setObjectName("HeaderWidget")
+
+        def mousePressEvent(event):
+            self.toggle_expand()
+
+        self.header_widget.mousePressEvent = mousePressEvent
+
+        header_layout = QHBoxLayout(self.header_widget)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+        header_layout.setSpacing(15)
+
+        # Стрелка
+        self.arrow_label = QLabel()
+        self.arrow_label.setFixedSize(24, 24)
+        self.arrow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.arrow_label.setStyleSheet("font-size: 14px; color: #9b59b6; font-weight: bold;")
+        header_layout.addWidget(self.arrow_label)
+
+        # Иконка
+        icon_label = QLabel("")
+        icon_label.setStyleSheet("font-size: 24px;")
+        header_layout.addWidget(icon_label)
+
+        # Название региона
+        name_label = QLabel(self.region_name)
+        name_font = QFont()
+        name_font.setPointSize(13)
+        name_font.setBold(True)
+        name_label.setFont(name_font)
+        name_label.setStyleSheet("color: #2c3e50; border: none; background: transparent;")
+        name_label.setMinimumWidth(200)
+        header_layout.addWidget(name_label, 2)
+
+        # Данные для заголовка
+        total = self.stats.get('total', 0)
+        selected = self.stats.get('selected', 0)
+        plan = self.stats.get('plan', 0)
+
+        percent = int((selected / plan) * 100) if plan > 0 else 0
+
+        if percent >= 80:
+            percent_color = "#2ecc71"
+            percent_bg = "#d5f5e3"
+        elif percent >= 50:
+            percent_color = "#f39c12"
+            percent_bg = "#fdebd0"
+        else:
+            percent_color = "#e74c3c"
+            percent_bg = "#fadbd8"
+
+        percent_widget = QLabel(f"{percent}%")
+        percent_widget.setFixedSize(65, 32)
+        percent_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        percent_widget.setStyleSheet(f"""
+            background-color: {percent_bg};
+            color: {percent_color};
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 16px;
+        """)
+        header_layout.addWidget(percent_widget)
+
+        # Краткая статистика
+        stats_widget = QWidget()
+        stats_layout = QHBoxLayout(stats_widget)
+        stats_layout.setSpacing(15)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+
+        selected_widget = QLabel(f"{selected}")
+        selected_widget.setStyleSheet("color: #2ecc71; font-size: 14px; font-weight: bold;")
+        stats_layout.addWidget(selected_widget)
+
+        total_widget = QLabel(f"{total}")
+        total_widget.setStyleSheet("color: #3498db; font-size: 14px; font-weight: bold;")
+        stats_layout.addWidget(total_widget)
+
+        header_layout.addWidget(stats_widget)
+        main_layout.addWidget(self.header_widget)
+
+        # ========== ДЕТАЛЬНАЯ ЧАСТЬ ==========
+        self.content_widget = QWidget()
+        self.content_widget.setVisible(False)
+        self.content_widget.setStyleSheet("""
+                    QWidget#ContentWidget {
+                        background-color: #f8f9fa;
+                        border-bottom-left-radius: 12px;
+                        border-bottom-right-radius: 12px;
+                    }
+                """)
+        self.content_widget.setObjectName("ContentWidget")
+
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(20, 15, 20, 15)
+        content_layout.setSpacing(10)
+
+        # Прогресс-бар
+        if plan > 0:
+            progress_widget = QWidget()
+            progress_layout = QVBoxLayout(progress_widget)
+            progress_layout.setContentsMargins(0, 0, 0, 0)
+            progress_layout.setSpacing(6)
+
+            progress_header = QWidget()
+            progress_header_layout = QHBoxLayout(progress_header)
+            progress_header_layout.setContentsMargins(0, 0, 0, 0)
+
+            progress_label = QLabel("Выполнение плана")
+            progress_label.setStyleSheet(
+                "color: #2c3e50; font-size: 13px; font-weight: bold; background: transparent; border: none;")
+            progress_header_layout.addWidget(progress_label)
+            progress_header_layout.addStretch()
+
+            progress_value = QLabel(f"{selected} из {plan} ({percent}%)")
+            progress_value.setStyleSheet(
+                f"color: {percent_color}; font-size: 13px; font-weight: bold; background: transparent; border: none;")
+            progress_header_layout.addWidget(progress_value)
+
+            progress_layout.addWidget(progress_header)
+
+            progress_bar = QProgressBar()
+            progress_bar.setMaximum(plan)
+            progress_bar.setValue(selected)
+            progress_bar.setFixedHeight(12)
+            progress_bar.setTextVisible(False)
+            progress_bar.setStyleSheet(f"""
+                        QProgressBar {{
+                            border: none;
+                            border-radius: 6px;
+                            background-color: #e0e0e0;
+                        }}
+                        QProgressBar::chunk {{
+                            background-color: {percent_color};
+                            border-radius: 6px;
+                        }}
+                    """)
+            progress_layout.addWidget(progress_bar)
+            content_layout.addWidget(progress_widget)
+
+        # ===== СТАТУС ДОКУМЕНТОВ =====
+        docs_label = QLabel("Статус документов:")
+        docs_label.setStyleSheet(
+            "color: #2c3e50; font-size: 13px; font-weight: bold; margin-top: 5px; background: transparent; border: none;")
+        content_layout.addWidget(docs_label)
+
+        docs_widget = QWidget()
+        # ИСПРАВЛЕНО: Жестко говорим контейнеру не расти больше, чем высота внутренних плашек (85px)
+        # docs_widget.setFixedHeight(85)
+
+        docs_layout = QHBoxLayout(docs_widget)
+        docs_layout.setSpacing(12)
+        docs_layout.setContentsMargins(0, 0, 0, 0)
+
+        vk = self.stats.get('vk', 0)
+        ok = self.stats.get('ok', 0)
+        vavko = self.stats.get('vavko', 0)
+
+        docs_layout.addWidget(self._create_stat_block("ВК", vk, "#f39c12"))
+        docs_layout.addWidget(self._create_stat_block("ОК", ok, "#8e44ad"))
+        docs_layout.addWidget(self._create_stat_block("ВА ВКО", vavko, "#16a085"))
+        docs_layout.addStretch()
+        content_layout.addWidget(docs_widget)
+
+        # ===== КАТЕГОРИИ =====
+        categories_label = QLabel("Распределение по категориям:")
+        categories_label.setStyleSheet(
+            "color: #2c3e50; font-size: 13px; font-weight: bold; margin-top: 5px; background: transparent; border: none;")
+        content_layout.addWidget(categories_label)
+
+        cats_widget = QWidget()
+        # ИСПРАВЛЕНО: Задаем фиксированную высоту и для этого контейнера
+        # cats_widget.setFixedHeight(85)
+
+        cats_layout = QHBoxLayout(cats_widget)
+        cats_layout.setSpacing(12)
+        cats_layout.setContentsMargins(0, 0, 0, 0)
+
+        male = self.stats.get('male', 0)
+        female = self.stats.get('female', 0)
+        military = self.stats.get('military', 0)
+        not_selected = self.stats.get('not_selected', 0)
+
+        cats_layout.addWidget(self._create_stat_block("Мужчины", male, "#3498db"))
+        cats_layout.addWidget(self._create_stat_block("Женщины", female, "#e67e22"))
+        cats_layout.addWidget(self._create_stat_block("Военнослужащие", military, "#1abc9c"))
+        cats_layout.addWidget(self._create_stat_block("Не отобраны", not_selected, "#e74c3c"))
+        cats_layout.addStretch()
+        content_layout.addWidget(cats_widget)
+
+        # ИСПРАВЛЕНО: Добавляем stretch в самый конец детальной панели,
+        # чтобы он забрал на себя все лишнее пространство и не ломал блоки
+        content_layout.addStretch(1)
+
+        main_layout.addWidget(self.content_widget)
+
+    def _create_stat_block(self, title, value, color):
+        """Создание блока статистики: цифра сверху, текст снизу"""
+        widget = QWidget()
+        widget.setMinimumWidth(130)
+        widget.setMinimumHeight(80)  # Даем минимальную комфортную высоту вместо жесткой фиксации
+
+        widget.setObjectName("StatBlock")
+        widget.setStyleSheet("""
+            QWidget#StatBlock {
+                background-color: white;
+                border-radius: 10px;
+                border: 1px solid #e8e8e8;
+            }
+        """)
+
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Крупная цифра (сверху)
+        value_label = QLabel(str(value))
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        value_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-size: 22px;
+                font-weight: bold;
+                border: none;
+                background: transparent;
+            }}
+        """)
+        layout.addWidget(value_label)
+
+        # Подпись (снизу)
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #555555;
+                font-size: 12px;
+                font-weight: 500;
+                border: none;
+                background: transparent;
+            }
+        """)
+        title_label.setWordWrap(True)
+        layout.addWidget(title_label)
+
+        return widget
+
+    def toggle_expand(self):
+        """Переключение раскрытия с динамическим расчетом высоты"""
+        self.is_expanded = not self.is_expanded
+
+        if self.is_expanded:
+            self.arrow_label.setText()
+            self.content_widget.setVisible(True)
+
+            # Вычисляем реальную идеальную высоту всего контента внутри лэйаута
+            ideal_height = self.content_widget.layout().sizeHint().height()
+
+            if self.animation:
+                self.animation.stop()
+
+            self.animation = QPropertyAnimation(self.content_widget, b"maximumHeight")
+            self.animation.setDuration(300)
+            self.animation.setStartValue(0)
+            self.animation.setEndValue(ideal_height)  # Открываем на реальную высоту (обычно ~360-400px)
+            self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+            # После окончания анимации убираем лимит maximumHeight,
+            # чтобы виджет вел себя естественно при изменении размеров окна
+            self.animation.finished.connect(lambda: self.content_widget.setMaximumHeight(16777215))
+            self.animation.start()
+        else:
+            self.arrow_label.setText()
+
+            if self.animation:
+                self.animation.stop()
+
+            self.animation = QPropertyAnimation(self.content_widget, b"maximumHeight")
+            self.animation.setDuration(250)
+            self.animation.setStartValue(self.content_widget.height())
+            self.animation.setEndValue(0)
+            self.animation.setEasingCurve(QEasingCurve.Type.InCubic)
+            self.animation.finished.connect(lambda: self.content_widget.setVisible(False))
+            self.animation.start()
 
 
 class RegionStatsDialog(QDialog):
-    """Диалог статистики по регионам для подразделения"""
+    """Диалог статистики по регионам"""
 
-    def __init__(self, department_name, department_id, db, parent=None):
+    def __init__(self, department_name, department_id, db, role='admin', parent=None):
         super().__init__(parent)
         self.department_name = department_name
         self.department_id = department_id
         self.db = db
+        self.role = role  # Добавляем роль
         self.setModal(True)
         self.setWindowTitle(f'Статистика по регионам - {department_name}')
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(950, 700)
+        self.resize(1100, 800)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         # Заголовок
-        title = QLabel(f'Статистика по регионам для подразделения "{self.department_name}"')
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_widget = QWidget()
+        header_widget.setFixedHeight(80)
+        header_widget.setStyleSheet("""
+            QWidget {
+                background-color: #9b59b6;
+                border-radius: 12px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+
+        icon_label = QLabel()
+        icon_label.setStyleSheet("font-size: 32px;")
+        header_layout.addWidget(icon_label)
+
+        title_widget = QWidget()
+        title_layout = QVBoxLayout(title_widget)
+        title_layout.setSpacing(5)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+
+        title_label = QLabel("Статистика по регионам")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
-        title.setFont(title_font)
-        title.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
-        layout.addWidget(title)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: white;")
+        title_layout.addWidget(title_label)
+
+        subtitle_label = QLabel(f"Подразделение: {self.department_name}")
+        subtitle_label.setStyleSheet("color: #d5b8e8; font-size: 13px;")
+        title_layout.addWidget(subtitle_label)
+
+        header_layout.addWidget(title_widget)
+        header_layout.addStretch()
+        layout.addWidget(header_widget)
 
         # Панель фильтров
-        filter_widget = QFrame()
-        filter_widget.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border-radius: 8px;
-                padding: 10px;
-                margin-bottom: 10px;
-            }
-        """)
+        filter_widget = QWidget()
         filter_layout = QHBoxLayout(filter_widget)
+        filter_layout.setContentsMargins(0, 5, 0, 5)
 
-        filter_layout.addWidget(QLabel("Фильтр по региону:"))
+        filter_label = QLabel("Фильтр по региону:")
+        filter_label.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 13px;")
+        filter_layout.addWidget(filter_label)
+
         self.region_combo = QComboBox()
         self.region_combo.addItem("Все регионы")
         self.load_regions()
         self.region_combo.currentTextChanged.connect(self.load_stats)
+        self.region_combo.setMinimumWidth(250)
+        self.region_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                background-color: white;
+                font-size: 13px;
+            }
+        """)
         filter_layout.addWidget(self.region_combo)
         filter_layout.addStretch()
 
         self.refresh_btn = QPushButton("Обновить")
+        self.refresh_btn.setFixedWidth(120)
+        self.refresh_btn.setFixedHeight(35)
         self.refresh_btn.clicked.connect(self.load_stats)
         self.refresh_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
                 color: white;
                 border: none;
-                border-radius: 5px;
-                padding: 6px 12px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
             }
         """)
         filter_layout.addWidget(self.refresh_btn)
-
         layout.addWidget(filter_widget)
 
-        # Таблица статистики
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels([
-            "Регион", "Мужчины", "Женщины", "Военнослужащие",
-            "Поступают", "Всего"
-        ])
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        # Сводка (Summary Panel)
+        self.summary_widget = QFrame()
+        self.summary_widget.setFixedHeight(95)
+        self.summary_widget.setStyleSheet("""
+            QFrame#SummaryWidget {
+                background-color: #f8f9fa;
+                border-radius: 12px;
+                border: 1px solid #e0e0e0;
+            }
+        """)
+        self.summary_widget.setObjectName("SummaryWidget")
 
-        layout.addWidget(self.table)
+        # Исправлено: Сразу инициализируем пустой лэйаут для сводки, чтобы потом наполнять его
+        summary_layout = QHBoxLayout(self.summary_widget)
+        summary_layout.setContentsMargins(20, 15, 20, 15)
+        summary_layout.setSpacing(20)
+        self.summary_widget.setLayout(summary_layout)
+
+        layout.addWidget(self.summary_widget)
+
+        # Область с прокруткой
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        self.scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setSpacing(10)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        layout.addWidget(self.scroll_area, 1)
 
         # Кнопка экспорта
-        export_btn = QPushButton("Экспортировать в CSV")
+        export_btn = QPushButton("📥 Экспортировать в CSV")
+        export_btn.setFixedHeight(45)
         export_btn.clicked.connect(self.export_to_csv)
         export_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
                 color: white;
                 border: none;
-                border-radius: 5px;
-                padding: 10px;
+                border-radius: 10px;
+                font-size: 14px;
                 font-weight: bold;
-                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
         layout.addWidget(export_btn)
 
-        # Загружаем данные
         self.load_stats()
 
     def load_regions(self):
-        """Загрузка регионов для подразделения"""
+        """Загрузка регионов"""
         regions = self.db.get_regions_for_department(self.department_id)
         for region in regions:
             self.region_combo.addItem(region['name'])
+
+    def update_summary(self, all_stats):
+        """Обновление сводки"""
+        summary_layout = self.summary_widget.layout()
+
+        while summary_layout.count():
+            item = summary_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # План уже есть в каждом регионе, суммируем
+        total_plan = sum(s.get('plan', 0) for s in all_stats)
+        total_selected = sum(s.get('selected', 0) for s in all_stats)
+        total_applicants = sum(s.get('total', 0) for s in all_stats)
+        total_regions = len(all_stats)
+
+        percent = int((total_selected / total_plan) * 100) if total_plan > 0 else 0
+
+        summary_items = [
+            ("Регионов", total_regions, "#9b59b6"),
+            ("Абитуриентов", total_applicants, "#3498db"),
+            ("Отобрано", total_selected, "#2ecc71"),
+            ("План", total_plan, "#f39c12"),
+            ("Выполнение", f"{percent}%", "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"),
+        ]
+
+        for label, value, color in summary_items:
+            item_widget = QWidget()
+            item_layout = QVBoxLayout(item_widget)
+            item_layout.setContentsMargins(0, 0, 0, 0)
+            item_layout.setSpacing(4)
+
+            value_widget = QLabel(str(value))
+            value_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            value_widget.setMinimumWidth(80)
+            value_widget.setFixedHeight(35)
+            value_widget.setStyleSheet(f"""
+                color: {color}; 
+                font-size: 16px; 
+                font-weight: bold; 
+                background-color: white; 
+                border: 1px solid #e0e0e0; 
+                border-radius: 15px;
+            """)
+
+            label_widget = QLabel(label)
+            label_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label_widget.setStyleSheet("color: #7f8c8d; font-size: 12px; background: transparent;")
+
+            item_layout.addWidget(value_widget)
+            item_layout.addWidget(label_widget)
+            summary_layout.addWidget(item_widget)
+
+        summary_layout.addStretch()
 
     def load_stats(self):
         """Загрузка статистики"""
@@ -1114,67 +1755,52 @@ class RegionStatsDialog(QDialog):
             if result:
                 region_id = result['id']
 
-        stats = self.db.get_stats_by_region(self.department_id, region_id)
+        # Для не-админа нужно передавать user_id? Нет, статистика по регионам
+        # для подразделения не зависит от роли - показывает всех абитуриентов подразделения
+        stats = self.db.get_detailed_region_stats(self.department_id, region_id)
+        self.update_summary(stats)
 
-        self.table.setRowCount(len(stats))
+        while self.scroll_layout.count():
+            item = self.scroll_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        total_male = 0
-        total_female = 0
-        total_military = 0
-        total_applying = 0
-        total_all = 0
+        for stat in stats:
+            stat_dict = dict(stat) if stat else {}
+            region_name_display = stat_dict.get('region_name', 'Регион не указан')
+            if not region_name_display or region_name_display == "Не указан":
+                region_name_display = "Регион не указан"
 
-        for row, stat in enumerate(stats):
-            stat_dict = dict(stat)
+            card = RegionCard(region_name_display, stat_dict)
+            self.scroll_layout.addWidget(card)
 
-            male = stat_dict.get('male_count', 0)
-            female = stat_dict.get('female_count', 0)
-            military = stat_dict.get('military_count', 0)
-            applying = stat_dict.get('applying_count', 0)
-            total = stat_dict.get('total_count', 0)
+        if not stats:
+            empty_widget = self._create_empty_widget()
+            self.scroll_layout.addWidget(empty_widget)
 
-            total_male += male
-            total_female += female
-            total_military += military
-            total_applying += applying
-            total_all += total
+        self.scroll_layout.addStretch()
 
-            items = [
-                QTableWidgetItem(stat_dict.get('region_name', 'Не указан')),
-                QTableWidgetItem(str(male)),
-                QTableWidgetItem(str(female)),
-                QTableWidgetItem(str(military)),
-                QTableWidgetItem(str(applying)),
-                QTableWidgetItem(str(total)),
-            ]
+    def _create_empty_widget(self):
+        """Пустое состояние"""
+        widget = QFrame()
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(0, 80, 0, 80)
 
-            for col, item in enumerate(items):
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(row, col, item)
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setStyleSheet("font-size: 64px; color: #bdc3c7;")
+        layout.addWidget(icon_label)
 
-        # Добавляем строку итогов
-        if stats:
-            self.table.insertRow(self.table.rowCount())
-            total_items = [
-                QTableWidgetItem("ИТОГО:"),
-                QTableWidgetItem(str(total_male)),
-                QTableWidgetItem(str(total_female)),
-                QTableWidgetItem(str(total_military)),
-                QTableWidgetItem(str(total_applying)),
-                QTableWidgetItem(str(total_all)),
-            ]
-            for col, item in enumerate(total_items):
-                if col == 0:
-                    item.setFont(QFont("", 10, QFont.Weight.Bold))
-                else:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(self.table.rowCount() - 1, col, item)
+        message_label = QLabel("Нет данных по регионам")
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_label.setStyleSheet("color: #7f8c8d; font-size: 16px; margin-top: 20px;")
+        layout.addWidget(message_label)
 
-        self.table.resizeColumnsToContents()
+        return widget
 
     def export_to_csv(self):
         """Экспорт в CSV"""
-        from PyQt5.QtWidgets import QFileDialog
         import pandas as pd
         from datetime import datetime
 
@@ -1188,17 +1814,27 @@ class RegionStatsDialog(QDialog):
             return
 
         data = []
-        for row in range(self.table.rowCount()):
-            row_data = []
-            for col in range(self.table.columnCount()):
-                item = self.table.item(row, col)
-                row_data.append(item.text() if item else '')
-            data.append(row_data)
+        for i in range(self.scroll_layout.count()):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if isinstance(widget, RegionCard):
+                stats = widget.stats
+                data.append({
+                    'Регион': widget.region_name,
+                    'План': stats.get('plan', 0),
+                    'Отобраны': stats.get('selected', 0),
+                    'ВК': stats.get('vk', 0),
+                    'ОК': stats.get('ok', 0),
+                    'ВА ВКО': stats.get('vavko', 0),
+                    'Мужчины': stats.get('male', 0),
+                    'Женщины': stats.get('female', 0),
+                    'Военнослужащие': stats.get('military', 0),
+                    'Не отобраны': stats.get('not_selected', 0),
+                    'Всего': stats.get('total', 0),
+                })
 
-        headers = [self.table.horizontalHeaderItem(col).text()
-                   for col in range(self.table.columnCount())]
-
-        df = pd.DataFrame(data, columns=headers)
-        df.to_csv(file_path, index=False, encoding='utf-8-sig')
-
-        QMessageBox.information(self, "Успех", f"Статистика экспортирована в:\n{file_path}")
+        if data:
+            df = pd.DataFrame(data)
+            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            QMessageBox.information(self, "Успех", "Статистика экспортирована в файл")
+        else:
+            QMessageBox.warning(self, "Внимание", "Нет данных для экспорта")

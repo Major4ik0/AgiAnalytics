@@ -3523,10 +3523,7 @@ class MainWindow(QMainWindow):
         self.schedule_tab = QWidget()
         self.init_schedule_tab()
         self.admin_tabs.addTab(self.schedule_tab, QIcon("icons/cloud.png"), "Расписание")
-        # вкладка "Регионы"
-        self.regions_tab = QWidget()
-        self.init_regions_tab()
-        self.admin_tabs.addTab(self.regions_tab, "Регионы")
+
 
         # Вкладка "Ответственные за регионы"
         self.department_regions_tab = QWidget()
@@ -3534,9 +3531,9 @@ class MainWindow(QMainWindow):
         self.admin_tabs.addTab(self.department_regions_tab, "Ответственные за регионы")
 
         # Вкладка прав доступа
-        self.permissions_tab = QWidget()
-        self.init_permissions_tab()
-        self.admin_tabs.addTab(self.permissions_tab, "Права доступа")
+        # self.permissions_tab = QWidget()
+        # self.init_permissions_tab()
+        # self.admin_tabs.addTab(self.permissions_tab, "Права доступа")
 
         layout.addWidget(self.admin_tabs)
         self.settings_tab.setLayout(layout)
@@ -4340,6 +4337,10 @@ class MainWindow(QMainWindow):
 
     def load_users_for_combo(self):
         """Загрузка пользователей в комбобокс"""
+        # Проверяем, существует ли user_combo (может не быть, если пользователь не админ)
+        if not hasattr(self, 'user_combo'):
+            return
+
         self.user_combo.clear()
         self.user_combo.addItem('-- Выберите пользователя --', None)
 
@@ -4368,8 +4369,9 @@ class MainWindow(QMainWindow):
         role_map = {'admin': 'Администратор', 'user': 'Пользователь'}
 
         for row, user in enumerate(users):
-            user_dict = dict(user)
+            user_dict = dict(user)  # Преобразуем Row в dict для безопасного доступа
 
+            # Используем .get() теперь безопасно, так как это dict
             items = [
                 QTableWidgetItem(str(user_dict.get('id', ''))),
                 QTableWidgetItem(user_dict.get('username', '')),
@@ -4506,7 +4508,9 @@ class MainWindow(QMainWindow):
 
                 QMessageBox.information(self, 'Успех', 'Данные пользователя обновлены!')
                 self.refresh_users()
-                self.load_users_for_combo()
+                # Проверяем, существует ли user_combo перед вызовом
+                if hasattr(self, 'user_combo'):
+                    self.load_users_for_combo()
             else:
                 QMessageBox.critical(self, 'Ошибка', 'Не удалось обновить данные пользователя.')
 
@@ -4602,16 +4606,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, 'Ошибка', 'ФИО агитатора обязательно!')
                 return
 
-            # Проверка на дубликат
-            if self.db.check_duplicate_applicant(data['applicant_name'], data['phone']):
-                reply = QMessageBox.question(
+            # Проверка на дубликат по ФИО
+            if self.db.check_duplicate_by_name(data['applicant_name']):
+                QMessageBox.warning(
                     self, 'Дубликат',
-                    'Абитуриент с таким ФИО и телефоном уже существует!\n'
-                    'Вы всё равно хотите добавить?',
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    f'Абитуриент с ФИО "{data["applicant_name"]}" уже существует!\n\n'
+                    f'Добавление невозможно.'
                 )
-                if reply == QMessageBox.StandardButton.No:
-                    return
+                return
 
             # Добавляем в БД
             self.db.add_applicant(self.user_data['id'], data)
@@ -4637,6 +4639,11 @@ class MainWindow(QMainWindow):
         cursor.execute('SELECT * FROM applicants WHERE id = ?', (applicant_id,))
         applicant_data = dict(cursor.fetchone())
 
+        # Проверка прав
+        if self.user_data['role'] != 'admin' and applicant_data.get('created_by') != self.user_data['id']:
+            QMessageBox.warning(self, 'Ошибка', 'Вы можете редактировать только добавленных вами абитуриентов!')
+            return
+
         dialog = ApplicantDialog(
             applicant_data=applicant_data,
             user_role=self.user_data['role'],
@@ -4645,7 +4652,8 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec():
             data = dialog.get_data()
-            self.db.update_applicant(applicant_id, data)
+            # Передаем user_id и role для проверки прав
+            self.db.update_applicant(applicant_id, data, self.user_data['id'], self.user_data['role'])
             self.refresh_data()
             self.stats_tab.update_statistics()
             QMessageBox.information(self, 'Успех', 'Данные абитуриента обновлены!')
