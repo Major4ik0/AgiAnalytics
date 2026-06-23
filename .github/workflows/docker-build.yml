@@ -75,11 +75,12 @@ jobs:
             --add-data="icons/documents.png;icons" `
             --add-data="icons/department.png;icons" `
             --add-data="icons/cloud.png;icons" `
-            --add-data="icons/add_user.png;icons" `
-            --add-data="icons/edit_user.png;icons" `
-            --add-data="icons/delete_user.png;icons" `
+            --add-data="icons/add.png;icons" `
+            --add-data="icons/edit.png;icons" `
+            --add-data="icons/clear.png;icons" `
+            --add-data="icons/help.png;icons" `
             --add-data="icons/rules.png;icons" `
-            main.py resource_helper.py
+            main.py resource_helper.py help_dialog.py statistics_widget.py database.py
           
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка x64 успешна"
@@ -168,11 +169,12 @@ jobs:
             --add-data="icons/documents.png;icons" `
             --add-data="icons/department.png;icons" `
             --add-data="icons/cloud.png;icons" `
-            --add-data="icons/add_user.png;icons" `
-            --add-data="icons/edit_user.png;icons" `
-            --add-data="icons/delete_user.png;icons" `
+            --add-data="icons/add.png;icons" `
+            --add-data="icons/edit.png;icons" `
+            --add-data="icons/clear.png;icons" `
+            --add-data="icons/help.png;icons" `
             --add-data="icons/rules.png;icons" `
-            main.py resource_helper.py
+            main.py resource_helper.py help_dialog.py statistics_widget.py database.py
           
           if (Test-Path "dist/$exe_name.exe") {
             Write-Host "✅ Сборка x86 успешна"

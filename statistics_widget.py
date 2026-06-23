@@ -802,7 +802,7 @@ class ExpandableDepartmentCard(QFrame):
     def _add_detailed_stats(self, layout):
         """Добавление детальной статистики"""
 
-        # Блок с карточками (как было в display_department_stats)
+        # Блок с карточками
         cards_widget = QWidget()
         cards_layout = QGridLayout(cards_widget)
         cards_layout.setSpacing(15)
@@ -852,7 +852,31 @@ class ExpandableDepartmentCard(QFrame):
 
         layout.addWidget(cards_widget)
 
-        # Добавляем кнопку "Статистика по регионам"
+        # Кнопки управления
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+        buttons_layout.setContentsMargins(0, 10, 0, 0)
+        buttons_layout.setSpacing(10)
+
+        # Кнопка "Редактировать план"
+        edit_plan_btn = QPushButton("Редактировать план")
+        edit_plan_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+        """)
+        edit_plan_btn.clicked.connect(self.edit_plan)
+        buttons_layout.addWidget(edit_plan_btn)
+
+        # Кнопка "Статистика по регионам"
         region_btn = QPushButton("Статистика по регионам")
         region_btn.setStyleSheet("""
             QPushButton {
@@ -862,14 +886,77 @@ class ExpandableDepartmentCard(QFrame):
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                margin-top: 10px;
             }
             QPushButton:hover {
                 background-color: #8e44ad;
             }
         """)
         region_btn.clicked.connect(self.show_region_stats)
-        layout.addWidget(region_btn)
+        buttons_layout.addWidget(region_btn)
+
+        buttons_layout.addStretch()
+        layout.addWidget(buttons_widget)
+
+    def edit_plan(self):
+        """Редактирование плана для этого подразделения"""
+        # Находим родительский StatisticsWidget
+        parent_widget = self.parent()
+        while parent_widget and not isinstance(parent_widget, StatisticsWidget):
+            parent_widget = parent_widget.parent()
+
+        if not parent_widget:
+            QMessageBox.warning(self, "Ошибка", "Не удалось определить родительский виджет!")
+            return
+
+        # Проверяем права
+        if not hasattr(parent_widget, 'role'):
+            QMessageBox.warning(self, "Ошибка", "Не удалось определить права доступа!")
+            return
+
+        # Проверяем, есть ли у пользователя права на редактирование плана
+        can_edit = False
+
+        # Админ может редактировать всё
+        if parent_widget.role == 'admin':
+            can_edit = True
+        else:
+            # Проверяем, является ли пользователь начальником этого подразделения
+            user_info = parent_widget.db.get_user_by_id(parent_widget.user_id)
+            user_dict = dict(user_info) if user_info else {}
+
+            if user_dict.get('is_head'):
+                # Проверяем, что это его подразделение
+                cursor = parent_widget.db.conn.cursor()
+                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict.get('department_id'),))
+                dept = cursor.fetchone()
+                if dept and dept['name'] == self.department_name:
+                    can_edit = True
+
+        if not can_edit:
+            QMessageBox.warning(self, "Внимание", "У вас нет прав на редактирование плана этого подразделения!")
+            return
+
+        # Получаем ID подразделения
+        cursor = parent_widget.db.conn.cursor()
+        cursor.execute('SELECT id FROM departments WHERE name = ?', (self.department_name,))
+        result = cursor.fetchone()
+
+        if not result:
+            QMessageBox.warning(self, "Ошибка", "Подразделение не найдено!")
+            return
+
+        department_id = result['id']
+        current_year = parent_widget.current_year if hasattr(parent_widget, 'current_year') else 2026
+
+        # Получаем текущий план
+        current_plan = parent_widget.db.get_plan(department_id, current_year)
+
+        # Открываем диалог редактирования
+        dialog = PlanDialog(department_id, self.department_name, current_plan, current_year, parent_widget.db, self)
+        if dialog.exec():
+            # Обновляем статистику
+            parent_widget.update_statistics()
+            QMessageBox.information(self, "Успех", "План успешно обновлен!")
 
     def show_region_stats(self):
         """Показать статистику по регионам для этого подразделения"""
@@ -1024,6 +1111,37 @@ class StatisticsWidget(QWidget):
 
         # Инициализация данных
         self.update_statistics()
+
+    def load_departments(self):
+        """Загрузка подразделений"""
+        self.department_combo.clear()
+
+        if self.role == 'admin':
+            departments = self.db.get_departments()
+            self.department_combo.addItem("Все подразделения")
+            for dept in departments:
+                self.department_combo.addItem(dept['name'])
+            self.edit_plan_btn.setVisible(True)  # Админ может редактировать
+        else:
+            user_info = self.db.get_user_by_id(self.user_id)
+            user_dict = dict(user_info) if user_info else {}
+
+            if user_dict.get('is_head') and user_dict.get('department_id'):
+                # Начальник может редактировать план своего подразделения
+                cursor = self.db.conn.cursor()
+                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
+                dept = cursor.fetchone()
+                if dept:
+                    self.department_combo.addItem(dept['name'])
+                    self.edit_plan_btn.setVisible(True)  # Начальник может редактировать
+                else:
+                    self.department_combo.addItem("Нет подразделения")
+                    self.edit_plan_btn.setVisible(False)
+            else:
+                # Обычный пользователь
+                self.department_combo.addItem("Только мои записи")
+                self.department_combo.setEnabled(False)
+                self.edit_plan_btn.setVisible(False)
 
     def update_summary(self, departments_stats):
         """Обновление общей сводки"""
@@ -1487,7 +1605,7 @@ class RegionCard(QFrame):
         self.is_expanded = not self.is_expanded
 
         if self.is_expanded:
-            self.arrow_label.setText()
+            self.arrow_label.setText('')
             self.content_widget.setVisible(True)
 
             # Вычисляем реальную идеальную высоту всего контента внутри лэйаута
@@ -1507,7 +1625,7 @@ class RegionCard(QFrame):
             self.animation.finished.connect(lambda: self.content_widget.setMaximumHeight(16777215))
             self.animation.start()
         else:
-            self.arrow_label.setText()
+            self.arrow_label.setText('')
 
             if self.animation:
                 self.animation.stop()

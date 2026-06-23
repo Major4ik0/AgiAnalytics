@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
+
+from PyQt5 import QtCore
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLabel,
                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -17,6 +19,7 @@ from resource_helper import get_icon_path, resource_path
 from statistics_widget import StatisticsWidget
 import pandas as pd
 import os
+from help_dialog import HelpDialog
 
 os.environ['QT_MAC_WANTS_LAYER'] = '1'
 
@@ -472,13 +475,49 @@ class ApplicantDialog(QDialog):
             for dept_name in departments:
                 self.agitator_department.addItem(dept_name)
 
+    def validate_full_name(self, name):
+        """Проверка, что ФИО написано полностью, а не сокращенно"""
+        if not name:
+            return False, "ФИО не может быть пустым"
+
+        # Разбиваем на части
+        parts = name.strip().split()
+
+        # Должно быть минимум 3 части (Фамилия Имя Отчество)
+        if len(parts) < 3:
+            return False, "ФИО должно содержать минимум 3 слова (Фамилия Имя Отчество)"
+
+        # Проверяем, что все части начинаются с заглавной буквы и содержат только буквы
+        for part in parts:
+            if not part[0].isupper():
+                return False, f"Каждая часть ФИО должна начинаться с заглавной буквы: {part}"
+            if not part.isalpha():
+                return False, f"ФИО должно содержать только буквы: {part}"
+            # Проверяем, что часть не является инициалом (одна буква с точкой)
+            if len(part) == 2 and part[1] == '.':
+                return False, f"Не используйте сокращения (инициалы). Напишите полностью: {part}"
+            if len(part) == 1:
+                return False, f"Не используйте сокращения (инициалы). Напишите полностью: {part}"
+
+        # Проверяем, что первая часть (фамилия) не слишком короткая
+        if len(parts[0]) < 2:
+            return False, "Фамилия слишком короткая"
+
+        # Проверяем, что имя и отчество написаны полностью (не менее 2 букв)
+        for i in range(1, len(parts)):
+            if len(parts[i]) < 2:
+                return False, f"Имя и отчество должны быть написаны полностью, не сокращенно: {parts[i]}"
+
+        return True, "OK"
+
     def load_regions(self):
         """Загрузка регионов из БД"""
         if self.db:
             regions = self.db.get_regions()
             self.region.clear()
-            self.region.addItem("Выберите или введите субъект РФ")
+            self.region.addItem("Выберите субъект РФ")  # Изменен текст
             self.region.addItems(regions)
+            self.region.setEditable(False)  # ЗАПРЕЩАЕМ ввод своего региона
         else:
             # Данные по умолчанию
             self.region.addItems([
@@ -489,6 +528,7 @@ class ApplicantDialog(QDialog):
                 "Нижегородская область", "Самарская область", "Омская область",
                 "Воронежская область", "Пермский край", "Волгоградская область"
             ])
+            self.region.setEditable(False)  # ЗАПРЕЩАЕМ ввод
 
     def on_agitator_type_changed(self):
         """Обработка изменения типа агитатора"""
@@ -538,18 +578,34 @@ class ApplicantDialog(QDialog):
             self.phone.setStyleSheet("border: 1px solid #2ecc71;")
 
     def validate_and_accept(self):
-        """Валидация обязательных полей (только те, что в таблице)"""
+        """Валидация обязательных полей"""
         errors = []
 
-        # Обязательные поля из таблицы:
-        # 1. ФИО абитуриента
-        if not self.applicant_name.text().strip():
+        # 1. ФИО абитуриента - проверяем на полноту
+        applicant_name = self.applicant_name.text().strip()
+        if not applicant_name:
             errors.append("ФИО абитуриента")
             self.applicant_name.setStyleSheet("border: 2px solid #e74c3c;")
         else:
-            self.applicant_name.setStyleSheet("")
+            # Проверяем, что ФИО написано полностью
+            is_valid, message = self.validate_full_name(applicant_name)
+            if not is_valid:
+                errors.append(f"ФИО абитуриента ({message})")
+                self.applicant_name.setStyleSheet("border: 2px solid #e74c3c;")
+                self.applicant_name.setToolTip(message)
+            else:
+                self.applicant_name.setStyleSheet("")
+                self.applicant_name.setToolTip("")
 
-        # 2. Телефон (должен быть заполнен)
+        # 2. Субъект РФ - обязательно выбрать из списка
+        region_text = self.region.currentText().strip()
+        if not region_text or region_text == "Выберите субъект РФ":
+            errors.append("Субъект РФ (выберите из списка)")
+            self.region.setStyleSheet("border: 2px solid #e74c3c;")
+        else:
+            self.region.setStyleSheet("")
+
+        # 3. Телефон
         phone_clean = self.clean_phone_number(self.phone.text())
         if not phone_clean or len(phone_clean) < 10:
             errors.append("Телефон")
@@ -557,22 +613,35 @@ class ApplicantDialog(QDialog):
         else:
             self.phone.setStyleSheet("")
 
-        # 3. ФИО агитатора (обязательно)
-        if not self.agitator_name.text().strip():
+        # 4. ФИО агитатора
+        agitator_name = self.agitator_name.text().strip()
+        if not agitator_name:
             errors.append("ФИО агитатора")
             self.agitator_name.setStyleSheet("border: 2px solid #e74c3c;")
         else:
-            self.agitator_name.setStyleSheet("")
+            # Проверяем, что ФИО агитатора тоже написано полностью
+            is_valid, message = self.validate_full_name(agitator_name)
+            if not is_valid:
+                errors.append(f"ФИО агитатора ({message})")
+                self.agitator_name.setStyleSheet("border: 2px solid #e74c3c;")
+                self.agitator_name.setToolTip(message)
+            else:
+                self.agitator_name.setStyleSheet("")
+                self.agitator_name.setToolTip("")
 
-        # 4. Подразделение (обязательно)
-        if not self.agitator_department.currentText().strip():
+        # 5. Подразделение (обязательно, только из списка)
+        dept_text = self.agitator_department.currentText().strip()
+        if not dept_text:
             errors.append("Подразделение")
             self.agitator_department.setStyleSheet("border: 2px solid #e74c3c;")
         else:
-            self.agitator_department.setStyleSheet("")
-
-        # Категория - всегда выбрана по умолчанию, не проверяем
-        # Статус - всегда выбран по умолчанию, не проверяем
+            # Проверяем, что подразделение есть в списке
+            dept_list = [self.agitator_department.itemText(i) for i in range(self.agitator_department.count())]
+            if dept_text not in dept_list:
+                errors.append("Подразделение (выберите из списка)")
+                self.agitator_department.setStyleSheet("border: 2px solid #e74c3c;")
+            else:
+                self.agitator_department.setStyleSheet("")
 
         # Для курсанта: если выбран тип "курсант", то группа обязательна
         if self.agitator_is_cadet.isChecked():
@@ -584,13 +653,14 @@ class ApplicantDialog(QDialog):
 
         # Если есть ошибки
         if errors:
-            error_msg = "Пожалуйста, заполните следующие обязательные поля:\n• " + "\n• ".join(errors)
+            error_msg = "Пожалуйста, исправьте следующие ошибки:\n• " + "\n• ".join(errors)
             QMessageBox.warning(self, "Ошибка валидации", error_msg)
             return
 
         self.accept()
 
-    def clean_phone_number(self, phone):
+    @staticmethod
+    def clean_phone_number(phone):
         """Очистка номера телефона от форматирования"""
         if not phone:
             return ""
@@ -719,14 +789,14 @@ class ApplicantDialog(QDialog):
         # Данные абитуриента
         data = {
             'applicant_name': self.applicant_name.text().strip(),
-            'region': self.region.currentText().strip() if self.region.currentText() != "Выберите или введите субъект РФ" else "",
+            'region': self.region.currentText().strip() if self.region.currentText() != "Выберите субъект РФ" else "",
             'city': self.city.text().strip(),
             'category': category,
             'phone': phone,
             'education': self.education.currentText(),
             'status': status,
             'document_status': self.document_status.currentText(),
-            'agitator_department': self.agitator_department.currentText().strip(),
+            'agitator_department': self.agitator_department.currentText().strip() if self.agitator_department.currentText() != "Выберите подразделение" else "",
             'agitator_name': self.agitator_name.text().strip(),
             'agitator_is_cadet': self.agitator_is_cadet.isChecked(),
             'notes': self.notes.text().strip(),
@@ -803,16 +873,17 @@ class AdvancedSearchDialog(QDialog):
         applicant_layout.setSpacing(10)
 
         # ФИО абитуриента
-        self.applicant_name = QLineEdit()
-        self.applicant_name.setPlaceholderText("Введите ФИО полностью или частично")
-        self.applicant_name.setClearButtonEnabled(True)
-        applicant_layout.addRow("ФИО абитуриента:", self.applicant_name)
+        self.agitator_name = QLineEdit()
+        self.agitator_name.setPlaceholderText("Петров Петр Петрович (полностью, без сокращений)")
+        self.agitator_name.setMinimumHeight(35)
+        self.agitator_name.setToolTip("Введите полное ФИО: Фамилия Имя Отчество (3 слова)")
+        agitator_layout.addRow("ФИО агитатора *:", self.agitator_name)
 
         # Субъект РФ
         self.region = QComboBox()
         self.region.setEditable(True)
         self.load_regions()
-        applicant_layout.addRow("Субъект РФ:", self.region)
+        applicant_layout.addRow("Субъект РФ *:", self.region)
 
         # Населенный пункт
         self.city = QLineEdit()
@@ -2929,11 +3000,6 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # # Кнопка выхода
-        # logout_action = QAction(QIcon(resource_path("icons/logout.png")), 'Выход', self)
-        # logout_action.triggered.connect(self.logout)
-        # toolbar.addAction(logout_action)
-
         import_action = QAction(QIcon(resource_path("icons/import.png")), 'Импорт из Excel', self)
         import_action.triggered.connect(self.import_from_excel)
         toolbar.addAction(import_action)
@@ -2942,12 +3008,17 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self.export_data)
         toolbar.addAction(export_action)
 
-        # Растягивающийся разделитель (толкает все кнопки справа налево)
+        # Растягивающийся разделитель
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
-        # Кнопка выхода (будет справа)
+        # Кнопка помощи
+        help_action = QAction(QIcon(resource_path("icons/help.png")), 'Помощь', self)
+        help_action.triggered.connect(self.show_help)
+        toolbar.addAction(help_action)
+
+        # Кнопка выхода
         logout_action = QAction(QIcon(resource_path("icons/logout.png")), 'Выход', self)
         logout_action.triggered.connect(self.logout)
         toolbar.addAction(logout_action)
@@ -2983,6 +3054,11 @@ class MainWindow(QMainWindow):
 
         # Обновление данных
         self.refresh_data()
+
+    def show_help(self):
+        """Показать окно помощи"""
+        dialog = HelpDialog(self.user_data['role'], self.db, self)
+        dialog.exec()
 
     def open_advanced_search(self):
         """Открытие диалога расширенного поиска"""
@@ -3550,11 +3626,41 @@ class MainWindow(QMainWindow):
         self.department_combo_for_regions.addItems([d['name'] for d in self.db.get_departments()])
         self.department_combo_for_regions.currentIndexChanged.connect(self.refresh_department_regions)
 
-        self.add_region_to_department_btn = QPushButton("Добавить регион")
+        # Кнопка добавления региона
+        self.add_region_to_department_btn = QPushButton()
+        self.add_region_to_department_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_region_to_department_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_region_to_department_btn.setToolTip("Добавить регион подразделению")
+        self.add_region_to_department_btn.setFixedSize(40, 40)
         self.add_region_to_department_btn.clicked.connect(self.add_region_to_department)
+        self.add_region_to_department_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
 
-        self.remove_region_from_department_btn = QPushButton("Удалить регион")
+        # Кнопка удаления региона
+        self.remove_region_from_department_btn = QPushButton()
+        self.remove_region_from_department_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.remove_region_from_department_btn.setIconSize(QtCore.QSize(24, 24))
+        self.remove_region_from_department_btn.setToolTip("Удалить регион из подразделения")
+        self.remove_region_from_department_btn.setFixedSize(40, 40)
         self.remove_region_from_department_btn.clicked.connect(self.remove_region_from_department)
+        self.remove_region_from_department_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
 
         controls_layout.addWidget(QLabel("Подразделение:"))
         controls_layout.addWidget(self.department_combo_for_regions)
@@ -3653,29 +3759,39 @@ class MainWindow(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout()
 
-        self.add_region_btn = QPushButton("Добавить регион")
+        # Кнопка добавления
+        self.add_region_btn = QPushButton()
+        self.add_region_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_region_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_region_btn.setToolTip("Добавить регион")
+        self.add_region_btn.setFixedSize(40, 40)
         self.add_region_btn.clicked.connect(self.add_region)
         self.add_region_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
 
-        self.delete_region_btn = QPushButton("Удалить регион")
+        # Кнопка удаления
+        self.delete_region_btn = QPushButton()
+        self.delete_region_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.delete_region_btn.setIconSize(QtCore.QSize(24, 24))
+        self.delete_region_btn.setToolTip("Удалить регион")
+        self.delete_region_btn.setFixedSize(40, 40)
         self.delete_region_btn.clicked.connect(self.delete_region)
         self.delete_region_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
             }
         """)
 
@@ -3765,15 +3881,22 @@ class MainWindow(QMainWindow):
         days_group.setLayout(days_layout)
         layout.addWidget(days_group)
 
-        # Кнопка сохранения
-        save_btn = QPushButton("Сохранить настройки")
+        # Кнопка сохранения с иконкой
+        save_btn = QPushButton()
+        save_btn.setIcon(QIcon(resource_path("icons/edit.png")))
+        save_btn.setIconSize(QtCore.QSize(24, 24))
+        save_btn.setToolTip("Сохранить настройки")
+        save_btn.setFixedSize(40, 40)
         save_btn.clicked.connect(self.save_work_days)
         save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
                 color: white;
-                padding: 10px;
-                font-weight: bold;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
         layout.addWidget(save_btn)
@@ -3799,29 +3922,39 @@ class MainWindow(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout()
 
-        self.add_edu_btn = QPushButton("Добавить")
+        # Кнопка добавления
+        self.add_edu_btn = QPushButton()
+        self.add_edu_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_edu_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_edu_btn.setToolTip("Добавить тип образования")
+        self.add_edu_btn.setFixedSize(40, 40)
         self.add_edu_btn.clicked.connect(self.add_education_type)
         self.add_edu_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
 
-        self.delete_edu_btn = QPushButton("Удалить")
+        # Кнопка удаления
+        self.delete_edu_btn = QPushButton()
+        self.delete_edu_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.delete_edu_btn.setIconSize(QtCore.QSize(24, 24))
+        self.delete_edu_btn.setToolTip("Удалить тип образования")
+        self.delete_edu_btn.setFixedSize(40, 40)
         self.delete_edu_btn.clicked.connect(self.delete_education_type)
         self.delete_edu_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
             }
         """)
 
@@ -3847,29 +3980,39 @@ class MainWindow(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout()
 
-        self.add_doc_btn = QPushButton("Добавить")
+        # Кнопка добавления
+        self.add_doc_btn = QPushButton()
+        self.add_doc_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_doc_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_doc_btn.setToolTip("Добавить статус документов")
+        self.add_doc_btn.setFixedSize(40, 40)
         self.add_doc_btn.clicked.connect(self.add_document_status)
         self.add_doc_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
             }
         """)
 
-        self.delete_doc_btn = QPushButton("Удалить")
+        # Кнопка удаления
+        self.delete_doc_btn = QPushButton()
+        self.delete_doc_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.delete_doc_btn.setIconSize(QtCore.QSize(24, 24))
+        self.delete_doc_btn.setToolTip("Удалить статус документов")
+        self.delete_doc_btn.setFixedSize(40, 40)
         self.delete_doc_btn.clicked.connect(self.delete_document_status)
         self.delete_doc_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
             }
         """)
 
@@ -4005,48 +4148,54 @@ class MainWindow(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout()
 
-        self.add_dept_btn = QPushButton("Добавить подразделение")
+        # Кнопка добавления
+        self.add_dept_btn = QPushButton()
+        self.add_dept_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_dept_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_dept_btn.setToolTip("Добавить подразделение")
+        self.add_dept_btn.setFixedSize(40, 40)
         self.add_dept_btn.clicked.connect(self.add_department)
         self.add_dept_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2ecc71;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #27ae60;
             }
         """)
 
-        self.edit_dept_btn = QPushButton("Редактировать")
+        # Кнопка редактирования
+        self.edit_dept_btn = QPushButton()
+        self.edit_dept_btn.setIcon(QIcon(resource_path("icons/edit.png")))
+        self.edit_dept_btn.setIconSize(QtCore.QSize(24, 24))
+        self.edit_dept_btn.setToolTip("Редактировать подразделение")
+        self.edit_dept_btn.setFixedSize(40, 40)
         self.edit_dept_btn.clicked.connect(self.edit_department)
         self.edit_dept_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #2980b9;
             }
         """)
 
-        self.delete_dept_btn = QPushButton("Удалить")
+        # Кнопка удаления
+        self.delete_dept_btn = QPushButton()
+        self.delete_dept_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.delete_dept_btn.setIconSize(QtCore.QSize(24, 24))
+        self.delete_dept_btn.setToolTip("Удалить подразделение")
+        self.delete_dept_btn.setFixedSize(40, 40)
         self.delete_dept_btn.clicked.connect(self.delete_department)
         self.delete_dept_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c;
-                color: white;
                 border: none;
                 border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #c0392b;
@@ -4067,7 +4216,7 @@ class MainWindow(QMainWindow):
         self.departments_table.setHorizontalHeaderLabels([
             "ID", "Название", "Тип", "Начальник"
         ])
-        self.departments_table.setColumnHidden(0, True)  # Скрываем ID
+        self.departments_table.setColumnHidden(0, True)
         self.departments_table.horizontalHeader().setStretchLastSection(True)
         self.departments_table.setAlternatingRowColors(True)
         self.departments_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -4078,37 +4227,37 @@ class MainWindow(QMainWindow):
         self.departments_tab.setLayout(layout)
         self.refresh_departments()
 
-    def refresh_departments(self):
-        """Обновление списка подразделений"""
-        departments = self.db.get_all_departments_with_heads()
-
-        self.departments_table.setRowCount(len(departments))
-
-        for row, dept in enumerate(departments):
-            dept_dict = dict(dept)
-
-            items = [
-                QTableWidgetItem(str(dept_dict.get('id', ''))),
-                QTableWidgetItem(dept_dict.get('name', '')),
-                QTableWidgetItem(self.get_department_type_text(dept_dict.get('type', 'department'))),
-                QTableWidgetItem(dept_dict.get('head_name', '')),
-            ]
-
-            for col, item in enumerate(items):
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.departments_table.setItem(row, col, item)
-
-        self.departments_table.resizeColumnsToContents()
-
-    def get_department_type_text(self, dept_type):
-        """Преобразование типа подразделения в читаемый текст"""
-        types = {
-            'faculty': 'Факультет',
-            'department': 'Кафедра',
-            'group': 'Группа',
-            'root': 'Корневое'
-        }
-        return types.get(dept_type, dept_type)
+    # def refresh_departments(self):
+    #     """Обновление списка подразделений"""
+    #     departments = self.db.get_all_departments_with_heads()
+    #
+    #     self.departments_table.setRowCount(len(departments))
+    #
+    #     for row, dept in enumerate(departments):
+    #         dept_dict = dict(dept)
+    #
+    #         items = [
+    #             QTableWidgetItem(str(dept_dict.get('id', ''))),
+    #             QTableWidgetItem(dept_dict.get('name', '')),
+    #             QTableWidgetItem(self.get_department_type_text(dept_dict.get('type', 'department'))),
+    #             QTableWidgetItem(dept_dict.get('head_name', '')),
+    #         ]
+    #
+    #         for col, item in enumerate(items):
+    #             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+    #             self.departments_table.setItem(row, col, item)
+    #
+    #     self.departments_table.resizeColumnsToContents()
+    #
+    # def get_department_type_text(self, dept_type):
+    #     """Преобразование типа подразделения в читаемый текст"""
+    #     types = {
+    #         'faculty': 'Факультет',
+    #         'department': 'Кафедра',
+    #         'group': 'Группа',
+    #         'root': 'Корневое'
+    #     }
+    #     return types.get(dept_type, dept_type)
 
     def add_department(self):
         """Добавление подразделения"""
@@ -4219,14 +4368,59 @@ class MainWindow(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout()
 
-        self.add_user_btn = QPushButton("Добавить пользователя")
+        # Кнопка добавления
+        self.add_user_btn = QPushButton()
+        self.add_user_btn.setIcon(QIcon(resource_path("icons/add.png")))
+        self.add_user_btn.setIconSize(QtCore.QSize(24, 24))
+        self.add_user_btn.setToolTip("Добавить пользователя")
+        self.add_user_btn.setFixedSize(40, 40)
         self.add_user_btn.clicked.connect(self.add_user)
+        self.add_user_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
 
-        self.edit_user_btn = QPushButton("Редактировать")
+        # Кнопка редактирования
+        self.edit_user_btn = QPushButton()
+        self.edit_user_btn.setIcon(QIcon(resource_path("icons/edit.png")))
+        self.edit_user_btn.setIconSize(QtCore.QSize(24, 24))
+        self.edit_user_btn.setToolTip("Редактировать пользователя")
+        self.edit_user_btn.setFixedSize(40, 40)
         self.edit_user_btn.clicked.connect(self.edit_user)
+        self.edit_user_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
 
-        self.delete_user_btn = QPushButton("Удалить")
+        # Кнопка удаления
+        self.delete_user_btn = QPushButton()
+        self.delete_user_btn.setIcon(QIcon(resource_path("icons/clear.png")))
+        self.delete_user_btn.setIconSize(QtCore.QSize(24, 24))
+        self.delete_user_btn.setToolTip("Удалить пользователя")
+        self.delete_user_btn.setFixedSize(40, 40)
         self.delete_user_btn.clicked.connect(self.delete_user)
+        self.delete_user_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
 
         self.search_user_input = QLineEdit()
         self.search_user_input.setPlaceholderText("Поиск пользователей...")
@@ -4242,15 +4436,14 @@ class MainWindow(QMainWindow):
         controls_widget.setLayout(controls_layout)
         layout.addWidget(controls_widget)
 
-        # Таблица пользователей (добавляем колонку "Начальник")
+        # Таблица пользователей
         self.users_table = QTableWidget()
         self.users_table.setColumnCount(8)
         self.users_table.setHorizontalHeaderLabels([
             "ID", "Логин", "ФИО", "Роль", "Подразделение", "Должность", "Звание", "Начальник"
         ])
-        self.users_table.setColumnHidden(0, True)  # Скрываем ID
+        self.users_table.setColumnHidden(0, True)
 
-        # Настройка таблицы
         self.users_table.horizontalHeader().setStretchLastSection(True)
         self.users_table.setAlternatingRowColors(True)
         self.users_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
