@@ -873,11 +873,11 @@ class AdvancedSearchDialog(QDialog):
         applicant_layout.setSpacing(10)
 
         # ФИО абитуриента
-        self.agitator_name = QLineEdit()
-        self.agitator_name.setPlaceholderText("Петров Петр Петрович (полностью, без сокращений)")
-        self.agitator_name.setMinimumHeight(35)
-        self.agitator_name.setToolTip("Введите полное ФИО: Фамилия Имя Отчество (3 слова)")
-        agitator_layout.addRow("ФИО агитатора *:", self.agitator_name)
+        self.applicant_name = QLineEdit()
+        self.applicant_name.setPlaceholderText("Петров Петр Петрович (полностью, без сокращений)")
+        self.applicant_name.setMinimumHeight(35)
+        self.applicant_name.setToolTip("Введите полное ФИО: Фамилия Имя Отчество (3 слова)")
+        applicant_layout.addRow("ФИО агитатора *:", self.applicant_name)
 
         # Субъект РФ
         self.region = QComboBox()
@@ -4868,10 +4868,13 @@ class MainWindow(QMainWindow):
             for index in selected_rows:
                 row = index.row()
                 applicant_id = int(self.table.item(row, 0).text())
-                self.db.delete_applicant(applicant_id)
+                # Передаем user_id и role для проверки прав
+                a = self.db.delete_applicant(applicant_id, self.user_data['id'], self.user_data['role'])
+                print(a)
 
             self.refresh_data()
             self.stats_tab.update_statistics()
+            QMessageBox.information(self, 'Успех', 'Записи успешно удалены!')
 
     def import_from_excel(self):
         """Импорт данных из Excel файла"""

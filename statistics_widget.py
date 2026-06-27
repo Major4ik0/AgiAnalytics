@@ -1319,7 +1319,7 @@ class RegionCard(QFrame):
 
     def __init__(self, region_name, stats, parent=None):
         super().__init__(parent)
-        self.region_name = region_name if region_name and region_name != "Не указан" else "Регион не указан"
+        self.region_name = region_name if region_name and region_name != "Не указан" else "Вне плана"
         self.stats = stats
         self.is_expanded = False
         self.animation = None
@@ -1513,7 +1513,7 @@ class RegionCard(QFrame):
 
         docs_layout.addWidget(self._create_stat_block("ВК", vk, "#f39c12"))
         docs_layout.addWidget(self._create_stat_block("ОК", ok, "#8e44ad"))
-        docs_layout.addWidget(self._create_stat_block("ВА ВКО", vavko, "#16a085"))
+        docs_layout.addWidget(self._create_stat_block("Нет", vavko, "#16a085"))
         docs_layout.addStretch()
         content_layout.addWidget(docs_widget)
 
@@ -1537,7 +1537,7 @@ class RegionCard(QFrame):
         not_selected = self.stats.get('not_selected', 0)
 
         cats_layout.addWidget(self._create_stat_block("Мужчины", male, "#3498db"))
-        cats_layout.addWidget(self._create_stat_block("Женщины", female, "#e67e22"))
+        # cats_layout.addWidget(self._create_stat_block("Женщины", female, "#e67e22"))
         cats_layout.addWidget(self._create_stat_block("Военнослужащие", military, "#1abc9c"))
         cats_layout.addWidget(self._create_stat_block("Не отобраны", not_selected, "#e74c3c"))
         cats_layout.addStretch()
@@ -1873,8 +1873,6 @@ class RegionStatsDialog(QDialog):
             if result:
                 region_id = result['id']
 
-        # Для не-админа нужно передавать user_id? Нет, статистика по регионам
-        # для подразделения не зависит от роли - показывает всех абитуриентов подразделения
         stats = self.db.get_detailed_region_stats(self.department_id, region_id)
         self.update_summary(stats)
 
@@ -1885,9 +1883,9 @@ class RegionStatsDialog(QDialog):
 
         for stat in stats:
             stat_dict = dict(stat) if stat else {}
-            region_name_display = stat_dict.get('region_name', 'Регион не указан')
+            region_name_display = stat_dict.get('region_name', 'Вне плана')
             if not region_name_display or region_name_display == "Не указан":
-                region_name_display = "Регион не указан"
+                region_name_display = "Вне плана"
 
             card = RegionCard(region_name_display, stat_dict)
             self.scroll_layout.addWidget(card)
@@ -1942,7 +1940,7 @@ class RegionStatsDialog(QDialog):
                     'Отобраны': stats.get('selected', 0),
                     'ВК': stats.get('vk', 0),
                     'ОК': stats.get('ok', 0),
-                    'ВА ВКО': stats.get('vavko', 0),
+                    'Нет': stats.get('vavko', 0),
                     'Мужчины': stats.get('male', 0),
                     'Женщины': stats.get('female', 0),
                     'Военнослужащие': stats.get('military', 0),

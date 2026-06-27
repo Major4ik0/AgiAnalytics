@@ -970,7 +970,7 @@ class Database:
             if result and result['total_plan']:
                 plan = result['total_plan']
 
-        # Запрос для регионов
+        # Запрос для регионов - убираем подсчет женщин
         query = '''
             SELECT 
                 COALESCE(r.name, 'Не указан') as region_name,
@@ -980,8 +980,9 @@ class Database:
                 COUNT(CASE WHEN a.document_status = 'ОК' THEN 1 END) as ok,
                 COUNT(CASE WHEN a.document_status = 'ВА ВКО' THEN 1 END) as vavko,
                 COUNT(CASE WHEN a.category = 'м' THEN 1 END) as male,
-                COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female,
                 COUNT(CASE WHEN a.category = 'всл' THEN 1 END) as military,
+                -- Убираем подсчет женщин:
+                -- COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female,
                 COUNT(*) as total
             FROM applicants a
             LEFT JOIN regions r ON a.region = r.name
@@ -1007,6 +1008,9 @@ class Database:
         for row in results:
             stat_dict = dict(row)
             stat_dict['plan'] = plan
+            # Для совместимости с кодом, который может ожидать поле female,
+            # можно добавить его с нулевым значением или совсем убрать
+            # stat_dict['female'] = 0  # опционально
             stats_list.append(stat_dict)
 
         return stats_list
