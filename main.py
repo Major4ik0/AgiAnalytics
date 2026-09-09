@@ -1992,7 +1992,7 @@ class PermissionDialog(QDialog):
 class ImportWorker(QThread):
     """Поток для импорта данных"""
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(bool, str)
+    finished = pyqtSignal(bool, str, list)
 
     def __init__(self, file_path, password, selected_sheets, mapping, user_id, db):
         super().__init__()
@@ -2002,6 +2002,7 @@ class ImportWorker(QThread):
         self.mapping = mapping
         self.user_id = user_id
         self.db = db
+        self.errors = []
 
     def run(self):
         try:
@@ -2040,6 +2041,7 @@ class ImportWorker(QThread):
             duplicate_count = 0
             error_count = 0
             total_rows = 0
+            self.errors = []
 
             # Подсчитываем общее количество строк для прогресса
             for sheet_name in self.selected_sheets:
@@ -2057,7 +2059,6 @@ class ImportWorker(QThread):
 
                 df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
 
-                # Определяем курс из названия листа
                 course_from_sheet = ''
                 for course_num in ['1', '2', '3', '4', '5']:
                     if f'{course_num} курс' in sheet_name.lower():
@@ -2071,20 +2072,48 @@ class ImportWorker(QThread):
                         self.progress.emit(int((current_row / total_rows) * 100),
                                            f"Импорт: {current_row}/{total_rows}")
 
-                    # Пропускаем пустые строки
                     if row.isnull().all():
                         continue
 
                     # Извлекаем данные по маппингу
-                    applicant_data = self.extract_data(row, self.mapping, course_from_sheet)
+                    applicant_data, error_msg = self.extract_data(row, self.mapping, course_from_sheet)
 
+                    if not applicant_data:
+                        error_count += 1
+                        self.errors.append({
+                            'row': current_row,
+                            'sheet': sheet_name,
+                            'error': error_msg or 'Не удалось извлечь данные'
+                        })
+                        continue
+
+                    # Проверка обязательных полей
                     if not applicant_data.get('applicant_name'):
                         error_count += 1
+                        self.errors.append({
+                            'row': current_row,
+                            'sheet': sheet_name,
+                            'error': 'Отсутствует ФИО абитуриента'
+                        })
+                        continue
+
+                    if not applicant_data.get('agitator_name'):
+                        error_count += 1
+                        self.errors.append({
+                            'row': current_row,
+                            'sheet': sheet_name,
+                            'error': 'Отсутствует ФИО агитатора'
+                        })
                         continue
 
                     # Проверка на дубликат
                     if self.check_duplicate(applicant_data):
                         duplicate_count += 1
+                        self.errors.append({
+                            'row': current_row,
+                            'sheet': sheet_name,
+                            'error': f'Дубликат: {applicant_data.get("applicant_name")}'
+                        })
                         continue
 
                     # Добавляем в БД
@@ -2093,9 +2122,13 @@ class ImportWorker(QThread):
                         imported_count += 1
                     except Exception as e:
                         error_count += 1
-                        print(f"Ошибка добавления: {e}")
+                        self.errors.append({
+                            'row': current_row,
+                            'sheet': sheet_name,
+                            'error': f'Ошибка БД: {str(e)}'
+                        })
 
-            # Очистка
+            # Очистка временного файла
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
@@ -2103,19 +2136,19 @@ class ImportWorker(QThread):
                     pass
 
             result_message = f"""
-            Импорт завершен!
+                        Импорт завершен!
 
-            Статистика:
-            • Успешно импортировано: {imported_count}
-            • Пропущено дубликатов: {duplicate_count}
-            • Ошибок: {error_count}
-            • Обработано листов: {len(self.selected_sheets)}
-            """
+                        Статистика:
+                        • Успешно импортировано: {imported_count}
+                        • Пропущено дубликатов: {duplicate_count}
+                        • Ошибок: {error_count}
+                        • Обработано листов: {len(self.selected_sheets)}
+                        """
 
-            self.finished.emit(True, result_message)
+            self.finished.emit(True, result_message, self.errors)
 
         except Exception as e:
-            self.finished.emit(False, f"Ошибка импорта: {str(e)}")
+            self.finished.emit(False, f"Ошибка импорта: {str(e)}", [])
 
     def extract_data(self, row, mapping, course_from_sheet):
         """Извлечение данных по маппингу"""
@@ -2137,12 +2170,17 @@ class ImportWorker(QThread):
             'notes': ''
         }
 
-        # Маппинг полей - ВАЖНО: правильно сопоставляем!
+        errors = []
+
         for field, column in mapping.items():
             if column and column in row and pd.notna(row[column]):
                 value = str(row[column]).strip()
 
                 if field == 'applicant_name':
+                    # Проверяем, что ФИО содержит 3 слова
+                    parts = value.split()
+                    if len(parts) < 3:
+                        errors.append(f"ФИО абитуриента должно содержать 3 слова: {value}")
                     data['applicant_name'] = value
                 elif field == 'region':
                     data['region'] = value
@@ -2162,15 +2200,20 @@ class ImportWorker(QThread):
                 elif field == 'education':
                     data['education'] = value
                 elif field == 'status':
-                    if 'поступает' in value.lower() or 'поступают' in value.lower():
+                    if 'поступает' in value.lower() or 'поступают' in value.lower() or '1' in value:
                         data['status'] = 'поступает'
-                    else:
+                    elif 'отказывается' in value.lower() or '2' in value:
                         data['status'] = 'отказывается'
+                    else:
+                        data['status'] = 'поступает'  # по умолчанию
                 elif field == 'document_status':
                     data['document_status'] = value
                 elif field == 'agitator_department':
                     data['agitator_department'] = value
                 elif field == 'agitator_name':
+                    parts = value.split()
+                    if len(parts) < 3:
+                        errors.append(f"ФИО агитатора должно содержать 3 слова: {value}")
                     data['agitator_name'] = value
                 elif field == 'agitator_course':
                     data['agitator_course'] = value
@@ -2180,6 +2223,7 @@ class ImportWorker(QThread):
                     data['agitator_rank'] = value
                 elif field == 'notes':
                     data['notes'] = value
+
         # Если курс не указан, берем из названия листа
         if not data['agitator_course'] and course_from_sheet:
             data['agitator_course'] = course_from_sheet
@@ -2187,7 +2231,12 @@ class ImportWorker(QThread):
         # Определяем тип агитатора
         if data['agitator_group'] or (data['agitator_course'] and not data['agitator_rank']):
             data['agitator_is_cadet'] = True
-        return data
+
+        # Если есть ошибки, возвращаем их
+        if errors:
+            return None, "; ".join(errors)
+
+        return data, None
 
     @staticmethod
     def normalize_phone(phone):
@@ -2226,15 +2275,19 @@ class ImportDialog(QDialog):
         self.file_path = None
         self.available_columns = []
         self.mapping = {}
+        self.sheet_checkboxes = []
+        self.worker = None
+        self.progress_dialog = None
         self.setModal(True)
         self.setWindowTitle('Импорт данных из Excel')
-        self.setMinimumSize(800, 700)
-        self.setMaximumSize(1000, 800)
+        self.setMinimumSize(900, 750)
+        self.setMaximumSize(1200, 900)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         # Заголовок
         title = QLabel("Импорт данных из Excel")
@@ -2243,16 +2296,43 @@ class ImportDialog(QDialog):
         title_font.setPointSize(16)
         title_font.setBold(True)
         title.setFont(title_font)
+        title.setStyleSheet("color: #2c3e50; margin-bottom: 5px;")
         layout.addWidget(title)
 
         # Создаем скролл область для всего содержимого
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+        scroll_area.setStyleSheet("""
+            QScrollArea { 
+                border: none; 
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f0f0f0;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #c0c0c0;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #a0a0a0;
+            }
+        """)
+
+        scroll_area.setMinimumHeight(500)
+        scroll_area.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding
+        )
 
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(20)
+        scroll_layout.setContentsMargins(0, 0, 0, 10)
 
         # 1. Выбор файла
         file_group = QGroupBox("1. Выбор файла")
@@ -2263,6 +2343,7 @@ class ImportDialog(QDialog):
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -2271,14 +2352,16 @@ class ImportDialog(QDialog):
                 color: #3498db;
             }
         """)
+        file_group.setMinimumHeight(70)
         file_layout = QHBoxLayout()
+        file_layout.setContentsMargins(15, 10, 15, 10)
 
         self.file_label = QLabel("Файл не выбран")
         self.file_label.setStyleSheet("color: #e74c3c; padding: 5px;")
 
         self.select_file_btn = QPushButton("Выбрать файл")
         self.select_file_btn.clicked.connect(self.select_file)
-        self.select_file_btn.setMinimumHeight(35)
+        self.select_file_btn.setMinimumHeight(30)
 
         file_layout.addWidget(self.select_file_btn)
         file_layout.addWidget(self.file_label, 1)
@@ -2294,6 +2377,7 @@ class ImportDialog(QDialog):
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -2302,7 +2386,9 @@ class ImportDialog(QDialog):
                 color: #e67e22;
             }
         """)
+        password_group.setMinimumHeight(75)
         password_layout = QHBoxLayout()
+        password_layout.setContentsMargins(15, 10, 15, 10)
 
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Введите пароль для защищенного файла")
@@ -2322,6 +2408,7 @@ class ImportDialog(QDialog):
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -2330,18 +2417,47 @@ class ImportDialog(QDialog):
                 color: #2ecc71;
             }
         """)
+        sheets_group.setMinimumHeight(300)
         sheets_layout = QVBoxLayout()
+        sheets_layout.setContentsMargins(15, 10, 15, 10)
 
         self.load_sheets_btn = QPushButton("Загрузить листы")
         self.load_sheets_btn.clicked.connect(self.load_sheets)
         self.load_sheets_btn.setEnabled(False)
-        self.load_sheets_btn.setMinimumHeight(35)
+        self.load_sheets_btn.setMinimumHeight(20)
         sheets_layout.addWidget(self.load_sheets_btn)
 
+        # Скролл для листов с увеличенной высотой
+        sheets_scroll = QScrollArea()
+        sheets_scroll.setWidgetResizable(True)
+        sheets_scroll.setMinimumHeight(100)
+        sheets_scroll.setMaximumHeight(200)
+        sheets_scroll.setStyleSheet("""
+            QScrollArea { 
+                border: 1px solid #ddd; 
+                border-radius: 5px;
+                background-color: #fafafa;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f0f0f0;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #c0c0c0;
+                border-radius: 4px;
+                min-height: 200px;
+            }
+        """)
+
         self.sheets_widget = QWidget()
-        self.sheets_layout = QVBoxLayout(self.sheets_widget)
         self.sheets_widget.setVisible(False)
-        sheets_layout.addWidget(self.sheets_widget)
+        self.sheets_layout = QVBoxLayout(self.sheets_widget)
+        self.sheets_layout.setContentsMargins(10, 10, 10, 10)
+
+        sheets_scroll.setWidget(self.sheets_widget)
+        sheets_layout.addWidget(sheets_scroll)
 
         sheets_group.setLayout(sheets_layout)
         scroll_layout.addWidget(sheets_group)
@@ -2355,6 +2471,7 @@ class ImportDialog(QDialog):
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -2363,34 +2480,56 @@ class ImportDialog(QDialog):
                 color: #9b59b6;
             }
         """)
+        mapping_group.setMinimumHeight(300)
 
         # Создаем скролл для маппинга
         mapping_scroll = QScrollArea()
         mapping_scroll.setWidgetResizable(True)
-        mapping_scroll.setMaximumHeight(400)
-        mapping_scroll.setStyleSheet("QScrollArea { border: 1px solid #ddd; border-radius: 5px; }")
+        mapping_scroll.setMinimumHeight(250)
+        mapping_scroll.setStyleSheet("""
+            QScrollArea { 
+                border: 1px solid #ddd; 
+                border-radius: 5px;
+                background-color: #fafafa;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f0f0f0;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #c0c0c0;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+        """)
 
         self.mapping_widget = QWidget()
+        self.mapping_widget.setVisible(False)
         self.mapping_layout = QFormLayout(self.mapping_widget)
         self.mapping_layout.setSpacing(10)
-        self.mapping_widget.setVisible(False)
+        self.mapping_layout.setContentsMargins(15, 15, 15, 15)
 
         mapping_scroll.setWidget(self.mapping_widget)
 
         mapping_layout_main = QVBoxLayout()
+        mapping_layout_main.setContentsMargins(0, 0, 0, 0)
         mapping_layout_main.addWidget(mapping_scroll)
         mapping_group.setLayout(mapping_layout_main)
         scroll_layout.addWidget(mapping_group)
 
         scroll_layout.addStretch()
         scroll_area.setWidget(scroll_widget)
-        layout.addWidget(scroll_area)
+
+        layout.addWidget(scroll_area, 1)
 
         # Кнопки
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
+        button_box.setFixedHeight(60)
 
         self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
         self.ok_button.setText("Начать импорт")
@@ -2402,6 +2541,9 @@ class ImportDialog(QDialog):
                 color: white;
                 font-weight: bold;
                 font-size: 14px;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 20px;
             }
             QPushButton:hover {
                 background-color: #27ae60;
@@ -2433,12 +2575,12 @@ class ImportDialog(QDialog):
 
     def reset_sheets(self):
         """Сброс выбора листов"""
-        # Очищаем чекбоксы
         while self.sheets_layout.count():
             item = self.sheets_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        self.sheet_checkboxes = []
         self.sheets_widget.setVisible(False)
         self.mapping_widget.setVisible(False)
         self.ok_button.setEnabled(False)
@@ -2451,12 +2593,9 @@ class ImportDialog(QDialog):
             return
 
         try:
-            # Определяем движок
             engine = 'openpyxl' if self.file_path.endswith('.xlsx') else 'xlrd'
-
-            # Пробуем прочитать с паролем
-            temp_file_path = None
             file_path = self.file_path
+            temp_file_path = None
 
             if self.password_input.text().strip():
                 try:
@@ -2471,7 +2610,6 @@ class ImportDialog(QDialog):
                         temp_file_path = temp_file.name
                         office_file.decrypt(temp_file)
                         temp_file.close()
-
                         file_path = temp_file_path
                 except Exception as e:
                     QMessageBox.warning(self, "Ошибка", f"Неверный пароль: {str(e)}")
@@ -2479,16 +2617,16 @@ class ImportDialog(QDialog):
 
             xls = pd.ExcelFile(file_path, engine=engine)
 
-            # Очищаем старые чекбоксы
             while self.sheets_layout.count():
                 item = self.sheets_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
 
-            # Создаем чекбоксы для каждого листа
             self.sheet_checkboxes = []
+
             sheets_container = QWidget()
             sheets_container_layout = QGridLayout(sheets_container)
+            sheets_container_layout.setSpacing(8)
 
             row = 0
             col = 0
@@ -2505,7 +2643,6 @@ class ImportDialog(QDialog):
 
             self.sheets_layout.addWidget(sheets_container)
 
-            # Добавляем кнопки выбора
             buttons_widget = QWidget()
             buttons_layout = QHBoxLayout(buttons_widget)
 
@@ -2521,15 +2658,14 @@ class ImportDialog(QDialog):
             self.sheets_layout.addWidget(buttons_widget)
             self.sheets_widget.setVisible(True)
 
-            # Сохраняем колонки для маппинга
             first_sheet = xls.sheet_names[0]
             df = pd.read_excel(file_path, sheet_name=first_sheet, header=0)
             self.available_columns = list(df.columns)
 
-            # Создаем маппинг
             self.create_mapping_ui()
 
-            # Очищаем временный файл
+            xls.close()
+
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
@@ -2551,13 +2687,11 @@ class ImportDialog(QDialog):
 
     def create_mapping_ui(self):
         """Создание интерфейса для маппинга колонок"""
-        # Очищаем старый маппинг
         while self.mapping_layout.count():
             item = self.mapping_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Поля для маппинга - правильный порядок!
         fields = [
             ('applicant_name', 'ФИО абитуриента *', True),
             ('region', 'Субъект РФ', False),
@@ -2575,49 +2709,42 @@ class ImportDialog(QDialog):
             ('notes', 'Примечания', False)
         ]
 
-        # Показываем доступные колонки для отладки
         for field, label, required in fields:
-            # Создаем виджет для строки
             row_widget = QFrame()
             row_widget.setFrameStyle(QFrame.Shape.StyledPanel)
             row_widget.setStyleSheet("QFrame { background-color: #f8f9fa; border-radius: 5px; }")
+            row_widget.setMinimumHeight(40)
 
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(10, 5, 10, 5)
 
-            # Метка
             field_label = QLabel(label)
             field_label.setMinimumWidth(200)
             if required:
                 field_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
 
-            # Комбобокс с колонками
             combo = QComboBox()
             combo.addItem("-- Не выбрано --")
             combo.addItems(self.available_columns)
-            combo.setMinimumWidth(300)
+            combo.setMinimumWidth(350)
             combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-            # Автоматическое определение колонки
             auto_match = self.auto_match_column(field)
             if auto_match and auto_match in self.available_columns:
                 index = combo.findText(auto_match)
                 if index >= 0:
                     combo.setCurrentIndex(index)
+
             row_layout.addWidget(field_label)
             row_layout.addWidget(combo, 1)
 
             self.mapping_layout.addRow(row_widget)
-
-            # Сохраняем ссылку на комбобокс
             setattr(self, f"combo_{field}", combo)
 
-        # Добавляем пояснение
         info_label = QLabel("* Обязательные поля для сопоставления")
         info_label.setStyleSheet("color: #7f8c8d; font-style: italic; margin-top: 10px;")
         self.mapping_layout.addRow(info_label)
 
-        # Добавляем кнопку для проверки маппинга
         test_btn = QPushButton("Проверить маппинг")
         test_btn.clicked.connect(self.test_mapping)
         self.mapping_layout.addRow(test_btn)
@@ -2631,7 +2758,6 @@ class ImportDialog(QDialog):
             QMessageBox.warning(self, "Ошибка", "Сначала загрузите листы!")
             return
 
-        # Берем первый выбранный лист
         selected = [cb for cb in self.sheet_checkboxes if cb.isChecked()]
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Выберите хотя бы один лист!")
@@ -2640,7 +2766,6 @@ class ImportDialog(QDialog):
         sheet_name = selected[0].text()
 
         try:
-            # Читаем файл
             file_path = self.file_path
             temp_file_path = None
 
@@ -2657,18 +2782,15 @@ class ImportDialog(QDialog):
                         temp_file_path = temp_file.name
                         office_file.decrypt(temp_file)
                         temp_file.close()
-
                         file_path = temp_file_path
                 except:
                     pass
 
             df = pd.read_excel(file_path, sheet_name=sheet_name, header=0)
 
-            # Показываем первые 5 строк
             preview_text = f"Первые 5 строк из листа '{sheet_name}':\n\n"
             preview_text += df.head(5).to_string()
 
-            # Также показываем маппинг
             mapping = self.get_mapping()
             preview_text += f"\n\nТекущий маппинг:\n"
             for field, column in mapping.items():
@@ -2679,7 +2801,6 @@ class ImportDialog(QDialog):
 
             QMessageBox.information(self, "Проверка данных", preview_text)
 
-            # Очищаем временный файл
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
@@ -2700,10 +2821,8 @@ class ImportDialog(QDialog):
             'education': ['образование', 'уровень образования', 'школа', 'вуз', 'училище', 'образование'],
             'status': ['статус', 'поступление', 'статус поступления', 'решение', 'статус'],
             'document_status': ['документы', 'статус документов', 'личное дело', 'документ', 'документы'],
-            'agitator_department': ['подразделение агитатора', 'подразделение', 'кафедра', 'факультет', 'отделение',
-                                    'подр'],
-            'agitator_name': ['агитатор', 'фио агитатора', 'кто пригласил', 'пригласил', 'агитатор фио',
-                              'фио агитатора'],
+            'agitator_department': ['подразделение агитатора', 'подразделение', 'кафедра', 'факультет', 'отделение', 'подр'],
+            'agitator_name': ['агитатор', 'фио агитатора', 'кто пригласил', 'пригласил', 'агитатор фио', 'фио агитатора'],
             'agitator_course': ['курс агитатора', 'курс', 'год обучения', 'курс'],
             'agitator_group': ['группа агитатора', 'группа', 'учебная группа', 'номер группы', 'группа'],
             'agitator_rank': ['звание агитатора', 'звание', 'воинское звание', 'в/з', 'ранг', 'звание'],
@@ -2750,7 +2869,6 @@ class ImportDialog(QDialog):
 
         mapping = self.get_mapping()
 
-        # Проверяем обязательные поля
         if not mapping.get('applicant_name'):
             QMessageBox.warning(self, "Ошибка", "Необходимо сопоставить колонку 'ФИО абитуриента'!")
             return
@@ -2759,7 +2877,6 @@ class ImportDialog(QDialog):
             QMessageBox.warning(self, "Ошибка", "Необходимо сопоставить колонку 'ФИО агитатора'!")
             return
 
-        # Запускаем импорт в отдельном потоке
         self.worker = ImportWorker(
             self.file_path,
             self.password_input.text().strip(),
@@ -2772,7 +2889,6 @@ class ImportDialog(QDialog):
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.import_finished)
 
-        # Показываем прогресс
         self.progress_dialog = QProgressDialog("Подготовка к импорту...", "Отмена", 0, 100, self)
         self.progress_dialog.setWindowTitle("Импорт данных")
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -2787,13 +2903,28 @@ class ImportDialog(QDialog):
             self.progress_dialog.setValue(value)
             self.progress_dialog.setLabelText(message)
 
-    def import_finished(self, success, message):
+    def import_finished(self, success, message, errors):
         """Завершение импорта"""
         if hasattr(self, 'progress_dialog'):
             self.progress_dialog.close()
 
         if success:
-            QMessageBox.information(self, "Успех", message)
+            if errors:
+                error_text = "\n".join([f"Строка {e['row']} (лист '{e['sheet']}'): {e['error']}" for e in errors[:50]])
+                if len(errors) > 50:
+                    error_text += f"\n... и еще {len(errors) - 50} ошибок"
+
+                reply = QMessageBox.question(
+                    self,
+                    "Импорт завершен с ошибками",
+                    f"{message}\n\nНайдено ошибок: {len(errors)}\n\nПоказать детали?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    QMessageBox.information(self, "Детали ошибок", error_text)
+            else:
+                QMessageBox.information(self, "Успех", message)
+
             self.accept()
         else:
             QMessageBox.critical(self, "Ошибка", message)
@@ -4833,8 +4964,37 @@ class MainWindow(QMainWindow):
         applicant_data = dict(cursor.fetchone())
 
         # Проверка прав
-        if self.user_data['role'] != 'admin' and applicant_data.get('created_by') != self.user_data['id']:
-            QMessageBox.warning(self, 'Ошибка', 'Вы можете редактировать только добавленных вами абитуриентов!')
+        can_edit = False
+
+        # 1. Админ может редактировать всё
+        if self.user_data['role'] == 'admin':
+            can_edit = True
+        else:
+            # 2. Проверяем, является ли пользователь начальником подразделения
+            user_info = self.db.get_user_by_id(self.user_data['id'])
+            user_dict = dict(user_info) if user_info else {}
+
+            if user_dict.get('is_head') and user_dict.get('department_id'):
+                # Получаем название подразделения пользователя
+                cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
+                dept = cursor.fetchone()
+                if dept:
+                    user_department = dept['name']
+                    # Проверяем, что абитуриент привязан к этому подразделению
+                    if applicant_data.get('agitator_department') == user_department:
+                        can_edit = True
+
+            # 3. Или пользователь создал эту запись
+            if not can_edit and applicant_data.get('created_by') == self.user_data['id']:
+                can_edit = True
+
+        if not can_edit:
+            QMessageBox.warning(self, 'Ошибка',
+                                'Вы можете редактировать только:\n'
+                                '• Администратор - все записи\n'
+                                '• Начальник подразделения - записи своего подразделения\n'
+                                '• Создатель - свои записи'
+                                )
             return
 
         dialog = ApplicantDialog(
@@ -4845,7 +5005,6 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec():
             data = dialog.get_data()
-            # Передаем user_id и role для проверки прав
             self.db.update_applicant(applicant_id, data, self.user_data['id'], self.user_data['role'])
             self.refresh_data()
             self.stats_tab.update_statistics()
@@ -4868,9 +5027,41 @@ class MainWindow(QMainWindow):
             for index in selected_rows:
                 row = index.row()
                 applicant_id = int(self.table.item(row, 0).text())
-                # Передаем user_id и role для проверки прав
-                a = self.db.delete_applicant(applicant_id, self.user_data['id'], self.user_data['role'])
-                print(a)
+
+                # Получаем данные абитуриента для проверки прав
+                cursor = self.db.conn.cursor()
+                cursor.execute('SELECT * FROM applicants WHERE id = ?', (applicant_id,))
+                applicant_data = dict(cursor.fetchone())
+
+                # Проверка прав на удаление
+                can_delete = False
+
+                if self.user_data['role'] == 'admin':
+                    can_delete = True
+                else:
+                    user_info = self.db.get_user_by_id(self.user_data['id'])
+                    user_dict = dict(user_info) if user_info else {}
+
+                    if user_dict.get('is_head') and user_dict.get('department_id'):
+                        cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
+                        dept = cursor.fetchone()
+                        if dept:
+                            user_department = dept['name']
+                            if applicant_data.get('agitator_department') == user_department:
+                                can_delete = True
+
+                    if not can_delete and applicant_data.get('created_by') == self.user_data['id']:
+                        can_delete = True
+
+                if can_delete:
+                    self.db.delete_applicant(applicant_id, self.user_data['id'], self.user_data['role'])
+                else:
+                    QMessageBox.warning(self, 'Ошибка',
+                                        'Вы можете удалять только:\n'
+                                        '• Администратор - все записи\n'
+                                        '• Начальник подразделения - записи своего подразделения\n'
+                                        '• Создатель - свои записи'
+                                        )
 
             self.refresh_data()
             self.stats_tab.update_statistics()

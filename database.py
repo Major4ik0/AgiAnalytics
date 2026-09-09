@@ -958,19 +958,19 @@ class Database:
         """Детальная статистика по регионам с планом и статусами документов"""
         cursor = self.conn.cursor()
 
-        # Сначала получаем план для подразделения (если есть)
+        # Получаем план ТОЛЬКО для этого подразделения
         plan = 0
         if department_id:
             cursor.execute('''
                 SELECT SUM(plan_m + plan_f + plan_military) as total_plan
                 FROM plans 
                 WHERE department_id = ? AND year = strftime('%Y', 'now')
-            ''', (department_id,))
+            ''', (department_id,))  # <-- Фильтруем по department_id
             result = cursor.fetchone()
             if result and result['total_plan']:
                 plan = result['total_plan']
 
-        # Запрос для регионов - убираем подсчет женщин
+        # Запрос для регионов
         query = '''
             SELECT 
                 COALESCE(r.name, 'Не указан') as region_name,
@@ -981,8 +981,6 @@ class Database:
                 COUNT(CASE WHEN a.document_status = 'ВА ВКО' THEN 1 END) as vavko,
                 COUNT(CASE WHEN a.category = 'м' THEN 1 END) as male,
                 COUNT(CASE WHEN a.category = 'всл' THEN 1 END) as military,
-                -- Убираем подсчет женщин:
-                -- COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female,
                 COUNT(*) as total
             FROM applicants a
             LEFT JOIN regions r ON a.region = r.name
@@ -1007,11 +1005,23 @@ class Database:
         stats_list = []
         for row in results:
             stat_dict = dict(row)
-            stat_dict['plan'] = plan
-            # Для совместимости с кодом, который может ожидать поле female,
-            # можно добавить его с нулевым значением или совсем убрать
-            # stat_dict['female'] = 0  # опционально
+            stat_dict['plan'] = plan  # Теперь план только для этого подразделения
             stats_list.append(stat_dict)
+
+        # Если нет данных по регионам, но есть план - показываем пустой регион с планом
+        if not stats_list and plan > 0:
+            stats_list.append({
+                'region_name': 'Нет данных',
+                'selected': 0,
+                'not_selected': 0,
+                'vk': 0,
+                'ok': 0,
+                'vavko': 0,
+                'male': 0,
+                'military': 0,
+                'total': 0,
+                'plan': plan
+            })
 
         return stats_list
 
@@ -1029,24 +1039,28 @@ class Database:
 
         # Проверяем права пользователя на это подразделение
         has_access = False
+        department_id = None
 
         # Если пользователь - начальник этого подразделения
         if user_dict.get('is_head') and user_dict.get('department_id'):
-            cursor.execute('SELECT name FROM departments WHERE id = ?', (user_dict['department_id'],))
+            cursor.execute('SELECT id, name FROM departments WHERE id = ?', (user_dict['department_id'],))
             dept = cursor.fetchone()
             if dept and dept['name'] == department_name:
                 has_access = True
+                department_id = user_dict['department_id']
 
         # Если нет, проверяем права доступа из таблицы
         if not has_access:
             cursor.execute('''
-                SELECT d.name 
+                SELECT d.id, d.name 
                 FROM user_department_permissions p
                 JOIN departments d ON d.id = p.department_id
                 WHERE p.user_id = ? AND p.can_view = 1 AND d.name = ?
             ''', (user_id, department_name))
-            if cursor.fetchone():
+            result = cursor.fetchone()
+            if result:
                 has_access = True
+                department_id = result['id']
 
         # Если нет доступа - возвращаем пустую статистику
         if not has_access:

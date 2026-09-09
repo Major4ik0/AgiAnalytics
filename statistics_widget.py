@@ -24,7 +24,6 @@ class CourseSection(QFrame):
             CourseSection {
                 background-color: white;
                 border-radius: 10px;
-                border: 1px solid #e0e0e0;
             }
         """)
 
@@ -246,7 +245,6 @@ class StatisticsCard(QFrame):
             StatisticsCard {
                 background-color: white;
                 border-radius: 10px;
-                border: 1px solid #e0e0e0;
             }
             StatisticsCard:hover {
                 background-color: #f8f9fa;
@@ -623,12 +621,10 @@ class ExpandableDepartmentCard(QFrame):
             QFrame {
                 background-color: white;
                 border-radius: 12px;
-                border: 1px solid #e0e0e0;
                 margin: 5px;
             }
             QFrame:hover {
                 border-color: #3498db;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             }
         """)
 
@@ -1143,7 +1139,7 @@ class StatisticsWidget(QWidget):
                 self.department_combo.setEnabled(False)
                 self.edit_plan_btn.setVisible(False)
 
-    def update_summary(self, departments_stats):
+    def update_summary(self, departments_stats, visible_department_ids):
         """Обновление общей сводки"""
         # Очищаем старую сводку
         while self.summary_widget.layout().count():
@@ -1156,16 +1152,16 @@ class StatisticsWidget(QWidget):
         total_applicants = sum(s.get('total', 0) for s in departments_stats)
         total_applying = sum(
             s.get('applying_m', 0) + s.get('applying_f', 0) + s.get('applying_mil', 0) for s in departments_stats)
-        total_plans = 0
 
-        # Получаем планы
-        for dept in self.db.get_departments():
-            plan = self.db.get_plan(dept['id'], self.current_year)
+        # ИСПРАВЛЕНО: Считаем план ТОЛЬКО для видимых подразделений
+        total_plans = 0
+        for dept_id in visible_department_ids:
+            plan = self.db.get_plan(dept_id, self.current_year)
             total_plans += plan.get('plan_m', 0) + plan.get('plan_f', 0) + plan.get('plan_military', 0)
 
         # Создаем виджеты сводки
         summary_items = [
-            ("️Всего подразделений", len(departments_stats), "#3498db"),
+            ("Всего подразделений", len(departments_stats), "#3498db"),
             ("Всего абитуриентов", total_applicants, "#3498db"),
             ("Отобрано", total_applying, "#2ecc71"),
             ("План набора", total_plans, "#f39c12"),
@@ -1213,6 +1209,7 @@ class StatisticsWidget(QWidget):
 
         departments = self.db.get_departments()
         departments_stats = []
+        visible_department_ids = []  # <-- Добавляем список ID видимых подразделений
 
         if self.role == 'admin':
             # Админ видит все подразделения
@@ -1220,6 +1217,7 @@ class StatisticsWidget(QWidget):
                 stats = self.db.get_statistics_by_department(dept['name'])
                 plan = self.db.get_plan(dept['id'], self.current_year)
                 departments_stats.append(stats)
+                visible_department_ids.append(dept['id'])  # <-- Добавляем ID
 
                 card = ExpandableDepartmentCard(dept['name'], stats, plan)
                 card.set_db(self.db)
@@ -1230,18 +1228,14 @@ class StatisticsWidget(QWidget):
             user_info = self.db.get_user_by_id(self.user_id)
             user_dict = dict(user_info) if user_info else {}
 
-            # Получаем подразделения, к которым у пользователя есть доступ
             allowed_departments = []
 
-            # Если пользователь - начальник подразделения
             if user_dict.get('is_head') and user_dict.get('department_id'):
-                # Находим подразделение по ID
                 for dept in departments:
                     if dept['id'] == user_dict['department_id']:
                         allowed_departments.append(dept)
                         break
 
-            # Получаем права доступа из таблицы user_department_permissions
             permissions = self.db.get_user_department_permissions(self.user_id)
             for perm in permissions:
                 if perm['can_view']:
@@ -1249,26 +1243,25 @@ class StatisticsWidget(QWidget):
                         if dept['id'] == perm['department_id'] and dept not in allowed_departments:
                             allowed_departments.append(dept)
 
-            # Если нет прав ни на одно подразделение, показываем пустое состояние
             if not allowed_departments:
                 empty_widget = self._create_empty_widget("У вас нет доступа к подразделениям")
                 self.scroll_layout.addWidget(empty_widget)
                 self.scroll_layout.addStretch()
                 return
 
-            # Показываем только разрешенные подразделения
             for dept in allowed_departments:
                 stats = self.db.get_statistics_by_department_for_user(dept['name'], self.user_id, self.role)
                 plan = self.db.get_plan(dept['id'], self.current_year)
                 departments_stats.append(stats)
+                visible_department_ids.append(dept['id'])  # <-- Добавляем ID
 
                 card = ExpandableDepartmentCard(dept['name'], stats, plan)
                 card.set_db(self.db)
                 self.cards.append(card)
                 self.scroll_layout.addWidget(card)
 
-        # Обновляем сводку
-        self.update_summary(departments_stats)
+        # Обновляем сводку - передаем ID видимых подразделений
+        self.update_summary(departments_stats, visible_department_ids)  # <-- Передаем ID
 
         if not departments_stats and self.role != 'admin':
             empty_widget = self._create_empty_widget("У вас нет доступа к подразделениям")
@@ -1332,7 +1325,6 @@ class RegionCard(QFrame):
             RegionCard {
                 background-color: white;
                 border-radius: 12px;
-                border: 1px solid #e0e0e0;
             }
         """)
 
@@ -1395,27 +1387,27 @@ class RegionCard(QFrame):
 
         percent = int((selected / plan) * 100) if plan > 0 else 0
 
-        if percent >= 80:
-            percent_color = "#2ecc71"
-            percent_bg = "#d5f5e3"
-        elif percent >= 50:
-            percent_color = "#f39c12"
-            percent_bg = "#fdebd0"
-        else:
-            percent_color = "#e74c3c"
-            percent_bg = "#fadbd8"
-
-        percent_widget = QLabel(f"{percent}%")
-        percent_widget.setFixedSize(65, 32)
-        percent_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        percent_widget.setStyleSheet(f"""
-            background-color: {percent_bg};
-            color: {percent_color};
-            font-size: 14px;
-            font-weight: bold;
-            border-radius: 16px;
-        """)
-        header_layout.addWidget(percent_widget)
+        # if percent >= 80:
+        #     percent_color = "#2ecc71"
+        #     percent_bg = "#d5f5e3"
+        # elif percent >= 50:
+        #     percent_color = "#f39c12"
+        #     percent_bg = "#fdebd0"
+        # else:
+        #     percent_color = "#e74c3c"
+        #     percent_bg = "#fadbd8"
+        #
+        # percent_widget = QLabel(f"{percent}%")
+        # percent_widget.setFixedSize(65, 32)
+        # percent_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # percent_widget.setStyleSheet(f"""
+        #     background-color: {percent_bg};
+        #     color: {percent_color};
+        #     font-size: 14px;
+        #     font-weight: bold;
+        #     border-radius: 16px;
+        # """)
+        # header_layout.addWidget(percent_widget)
 
         # Краткая статистика
         stats_widget = QWidget()
@@ -1423,13 +1415,13 @@ class RegionCard(QFrame):
         stats_layout.setSpacing(15)
         stats_layout.setContentsMargins(0, 0, 0, 0)
 
-        selected_widget = QLabel(f"{selected}")
-        selected_widget.setStyleSheet("color: #2ecc71; font-size: 14px; font-weight: bold;")
-        stats_layout.addWidget(selected_widget)
-
-        total_widget = QLabel(f"{total}")
-        total_widget.setStyleSheet("color: #3498db; font-size: 14px; font-weight: bold;")
-        stats_layout.addWidget(total_widget)
+        # selected_widget = QLabel(f"{selected}")
+        # selected_widget.setStyleSheet("color: #2ecc71; font-size: 14px; font-weight: bold;")
+        # stats_layout.addWidget(selected_widget)
+        #
+        # total_widget = QLabel(f"{total}")
+        # total_widget.setStyleSheet("color: #3498db; font-size: 14px; font-weight: bold;")
+        # stats_layout.addWidget(total_widget)
 
         header_layout.addWidget(stats_widget)
         main_layout.addWidget(self.header_widget)
@@ -1451,47 +1443,47 @@ class RegionCard(QFrame):
         content_layout.setSpacing(10)
 
         # Прогресс-бар
-        if plan > 0:
-            progress_widget = QWidget()
-            progress_layout = QVBoxLayout(progress_widget)
-            progress_layout.setContentsMargins(0, 0, 0, 0)
-            progress_layout.setSpacing(6)
-
-            progress_header = QWidget()
-            progress_header_layout = QHBoxLayout(progress_header)
-            progress_header_layout.setContentsMargins(0, 0, 0, 0)
-
-            progress_label = QLabel("Выполнение плана")
-            progress_label.setStyleSheet(
-                "color: #2c3e50; font-size: 13px; font-weight: bold; background: transparent; border: none;")
-            progress_header_layout.addWidget(progress_label)
-            progress_header_layout.addStretch()
-
-            progress_value = QLabel(f"{selected} из {plan} ({percent}%)")
-            progress_value.setStyleSheet(
-                f"color: {percent_color}; font-size: 13px; font-weight: bold; background: transparent; border: none;")
-            progress_header_layout.addWidget(progress_value)
-
-            progress_layout.addWidget(progress_header)
-
-            progress_bar = QProgressBar()
-            progress_bar.setMaximum(plan)
-            progress_bar.setValue(selected)
-            progress_bar.setFixedHeight(12)
-            progress_bar.setTextVisible(False)
-            progress_bar.setStyleSheet(f"""
-                        QProgressBar {{
-                            border: none;
-                            border-radius: 6px;
-                            background-color: #e0e0e0;
-                        }}
-                        QProgressBar::chunk {{
-                            background-color: {percent_color};
-                            border-radius: 6px;
-                        }}
-                    """)
-            progress_layout.addWidget(progress_bar)
-            content_layout.addWidget(progress_widget)
+        # if plan > 0:
+            # progress_widget = QWidget()
+            # progress_layout = QVBoxLayout(progress_widget)
+            # progress_layout.setContentsMargins(0, 0, 0, 0)
+            # progress_layout.setSpacing(6)
+            #
+            # progress_header = QWidget()
+            # progress_header_layout = QHBoxLayout(progress_header)
+            # progress_header_layout.setContentsMargins(0, 0, 0, 0)
+            #
+            # progress_label = QLabel("Выполнение плана")
+            # progress_label.setStyleSheet(
+            #     "color: #2c3e50; font-size: 13px; font-weight: bold; background: transparent; border: none;")
+            # progress_header_layout.addWidget(progress_label)
+            # progress_header_layout.addStretch()
+            #
+            # progress_value = QLabel(f"{selected} из {plan} ({percent}%)")
+            # progress_value.setStyleSheet(
+            #     f"color: {percent_color}; font-size: 13px; font-weight: bold; background: transparent; border: none;")
+            # progress_header_layout.addWidget(progress_value)
+            #
+            # progress_layout.addWidget(progress_header)
+            #
+            # progress_bar = QProgressBar()
+            # progress_bar.setMaximum(plan)
+            # progress_bar.setValue(selected)
+            # progress_bar.setFixedHeight(12)
+            # progress_bar.setTextVisible(False)
+            # progress_bar.setStyleSheet(f"""
+            #             QProgressBar {{
+            #                 border: none;
+            #                 border-radius: 6px;
+            #                 background-color: #e0e0e0;
+            #             }}
+            #             QProgressBar::chunk {{
+            #                 background-color: {percent_color};
+            #                 border-radius: 6px;
+            #             }}
+            #         """)
+            # progress_layout.addWidget(progress_bar)
+            # content_layout.addWidget(progress_widget)
 
         # ===== СТАТУС ДОКУМЕНТОВ =====
         docs_label = QLabel("Статус документов:")
@@ -1513,7 +1505,7 @@ class RegionCard(QFrame):
 
         docs_layout.addWidget(self._create_stat_block("ВК", vk, "#f39c12"))
         docs_layout.addWidget(self._create_stat_block("ОК", ok, "#8e44ad"))
-        docs_layout.addWidget(self._create_stat_block("Нет", vavko, "#16a085"))
+        # docs_layout.addWidget(self._create_stat_block("Нет", vavko, "#16a085"))
         docs_layout.addStretch()
         content_layout.addWidget(docs_widget)
 
@@ -1749,7 +1741,6 @@ class RegionStatsDialog(QDialog):
             QFrame#SummaryWidget {
                 background-color: #f8f9fa;
                 border-radius: 12px;
-                border: 1px solid #e0e0e0;
             }
         """)
         self.summary_widget.setObjectName("SummaryWidget")
@@ -1826,10 +1817,10 @@ class RegionStatsDialog(QDialog):
 
         summary_items = [
             ("Регионов", total_regions, "#9b59b6"),
-            ("Абитуриентов", total_applicants, "#3498db"),
-            ("Отобрано", total_selected, "#2ecc71"),
-            ("План", total_plan, "#f39c12"),
-            ("Выполнение", f"{percent}%", "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"),
+            # ("Абитуриентов", total_applicants, "#3498db"),
+            # ("Отобрано", total_selected, "#2ecc71"),
+            # ("План", total_plan, "#f39c12"),
+            # ("Выполнение", f"{percent}%", "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"),
         ]
 
         for label, value, color in summary_items:
@@ -1847,7 +1838,6 @@ class RegionStatsDialog(QDialog):
                 font-size: 16px; 
                 font-weight: bold; 
                 background-color: white; 
-                border: 1px solid #e0e0e0; 
                 border-radius: 15px;
             """)
 
