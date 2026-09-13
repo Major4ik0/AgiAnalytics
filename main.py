@@ -614,20 +614,15 @@ class ApplicantDialog(QDialog):
             self.phone.setStyleSheet("")
 
         # 4. ФИО агитатора
+        # 4. ФИО агитатора - проверяем только на заполненность, без проверки на полноту
         agitator_name = self.agitator_name.text().strip()
         if not agitator_name:
             errors.append("ФИО агитатора")
             self.agitator_name.setStyleSheet("border: 2px solid #e74c3c;")
         else:
-            # Проверяем, что ФИО агитатора тоже написано полностью
-            is_valid, message = self.validate_full_name(agitator_name)
-            if not is_valid:
-                errors.append(f"ФИО агитатора ({message})")
-                self.agitator_name.setStyleSheet("border: 2px solid #e74c3c;")
-                self.agitator_name.setToolTip(message)
-            else:
-                self.agitator_name.setStyleSheet("")
-                self.agitator_name.setToolTip("")
+            # Убираем проверку на полное ФИО - можно писать сокращенно
+            self.agitator_name.setStyleSheet("")
+            self.agitator_name.setToolTip("")
 
         # 5. Подразделение (обязательно, только из списка)
         dept_text = self.agitator_department.currentText().strip()
@@ -2087,22 +2082,14 @@ class ImportWorker(QThread):
                         })
                         continue
 
-                    # Проверка обязательных полей
-                    if not applicant_data.get('applicant_name'):
+                    # Проверка обязательных полей (детальная проверка уже в extract_data)
+                    # Здесь только общая проверка на None
+                    if not applicant_data:
                         error_count += 1
                         self.errors.append({
                             'row': current_row,
                             'sheet': sheet_name,
-                            'error': 'Отсутствует ФИО абитуриента'
-                        })
-                        continue
-
-                    if not applicant_data.get('agitator_name'):
-                        error_count += 1
-                        self.errors.append({
-                            'row': current_row,
-                            'sheet': sheet_name,
-                            'error': 'Отсутствует ФИО агитатора'
+                            'error': error_msg or 'Не удалось извлечь данные'
                         })
                         continue
 
@@ -2177,10 +2164,10 @@ class ImportWorker(QThread):
                 value = str(row[column]).strip()
 
                 if field == 'applicant_name':
-                    # Проверяем, что ФИО содержит 3 слова
+                    # Проверяем, что ФИО содержит 3 слова (полное ФИО)
                     parts = value.split()
                     if len(parts) < 3:
-                        errors.append(f"ФИО абитуриента должно содержать 3 слова: {value}")
+                        errors.append(f"ФИО абитуриента должно содержать 3 слова (Фамилия Имя Отчество): {value}")
                     data['applicant_name'] = value
                 elif field == 'region':
                     data['region'] = value
@@ -2211,9 +2198,7 @@ class ImportWorker(QThread):
                 elif field == 'agitator_department':
                     data['agitator_department'] = value
                 elif field == 'agitator_name':
-                    parts = value.split()
-                    if len(parts) < 3:
-                        errors.append(f"ФИО агитатора должно содержать 3 слова: {value}")
+                    # ФИО агитатора НЕ проверяем на полноту (можно сокращенно)
                     data['agitator_name'] = value
                 elif field == 'agitator_course':
                     data['agitator_course'] = value
@@ -2231,6 +2216,33 @@ class ImportWorker(QThread):
         # Определяем тип агитатора
         if data['agitator_group'] or (data['agitator_course'] and not data['agitator_rank']):
             data['agitator_is_cadet'] = True
+
+        # ========== ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ ==========
+        required_fields = {
+            'applicant_name': 'ФИО абитуриента',
+            'region': 'Субъект РФ',
+            'city': 'Населенный пункт',
+            'category': 'Категория',
+            'phone': 'Телефон',
+            'education': 'Образование',
+            'status': 'Статус',
+            'document_status': 'Документы',
+            'agitator_name': 'ФИО агитатора',
+        }
+
+        for field, field_name in required_fields.items():
+            if not data.get(field):
+                errors.append(f"Не заполнено обязательное поле: {field_name}")
+
+        # Проверка телефона
+        if data.get('phone'):
+            digits = ''.join(filter(str.isdigit, data['phone']))
+            if len(digits) < 10:
+                errors.append(f"Некорректный номер телефона: {data['phone']}")
+
+        # Проверка категории
+        if data.get('category') and data['category'] not in ['м', 'ж', 'всл']:
+            errors.append(f"Некорректная категория: {data['category']} (должно быть м/ж/всл)")
 
         # Если есть ошибки, возвращаем их
         if errors:
@@ -2263,6 +2275,268 @@ class ImportWorker(QThread):
         ''', (applicant_data['applicant_name'], applicant_data['phone']))
         count = cursor.fetchone()[0]
         return count > 0
+
+
+class ImportErrorsDialog(QDialog):
+    """Диалог для отображения ошибок импорта"""
+
+    def __init__(self, errors, total_rows, imported_count, duplicate_count, error_count, parent=None):
+        super().__init__(parent)
+        self.errors = errors
+        self.total_rows = total_rows
+        self.imported_count = imported_count
+        self.duplicate_count = duplicate_count
+        self.error_count = error_count
+        self.setModal(True)
+        self.setWindowTitle('Результаты импорта')
+        self.setMinimumSize(1000, 700)
+        self.resize(1200, 800)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # ========== ЗАГОЛОВОК ==========
+        header_widget = QWidget()
+        header_widget.setStyleSheet("""
+            QWidget {
+                background-color: #2c3e50;
+                border-radius: 10px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+
+        title_label = QLabel("Результаты импорта данных")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: white; background: transparent;")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+
+        layout.addWidget(header_widget)
+
+        # ========== СТАТИСТИКА ==========
+        stats_widget = QWidget()
+        stats_layout = QHBoxLayout(stats_widget)
+        stats_layout.setSpacing(15)
+
+        stats_items = [
+            ("Всего строк", self.total_rows, "#3498db"),
+            ("Импортировано", self.imported_count, "#2ecc71"),
+            ("Дубликатов", self.duplicate_count, "#f39c12"),
+            ("Ошибок", self.error_count, "#e74c3c"),
+        ]
+
+        for label, value, color in stats_items:
+            stat_card = QFrame()
+            stat_card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: white;
+                    border-radius: 10px;
+                    border: 2px solid {color};
+                }}
+            """)
+            stat_layout = QVBoxLayout(stat_card)
+            stat_layout.setContentsMargins(15, 10, 15, 10)
+
+            value_label = QLabel(str(value))
+            value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            value_label.setStyleSheet(f"color: {color}; font-size: 24px; font-weight: bold; border: none;")
+
+            label_widget = QLabel(label)
+            label_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label_widget.setStyleSheet("color: #7f8c8d; font-size: 12px; border: none;")
+
+            stat_layout.addWidget(value_label)
+            stat_layout.addWidget(label_widget)
+            stats_layout.addWidget(stat_card)
+
+        stats_layout.addStretch()
+        layout.addWidget(stats_widget)
+
+        # ========== ФИЛЬТР ==========
+        filter_widget = QWidget()
+        filter_layout = QHBoxLayout(filter_widget)
+        filter_layout.setContentsMargins(0, 5, 0, 5)
+
+        filter_label = QLabel("Фильтр ошибок:")
+        filter_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        filter_layout.addWidget(filter_label)
+
+        self.filter_combo = QComboBox()
+        self.filter_combo.addItems(["Все ошибки", "Дубликаты", "Ошибки данных", "Ошибки БД"])
+        self.filter_combo.currentTextChanged.connect(self.apply_filter)
+        self.filter_combo.setMinimumWidth(200)
+        filter_layout.addWidget(self.filter_combo)
+
+        filter_layout.addStretch()
+
+        # Кнопка экспорта
+        export_btn = QPushButton("📥 Экспортировать ошибки")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        export_btn.clicked.connect(self.export_errors)
+        filter_layout.addWidget(export_btn)
+
+        layout.addWidget(filter_widget)
+
+        # ========== ТАБЛИЦА ОШИБОК ==========
+        self.errors_table = QTableWidget()
+        self.errors_table.setColumnCount(5)
+        self.errors_table.setHorizontalHeaderLabels([
+            "№", "Лист", "Строка", "Тип ошибки", "Описание"
+        ])
+        self.errors_table.setAlternatingRowColors(True)
+        self.errors_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.errors_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.errors_table.horizontalHeader().setStretchLastSection(True)
+        self.errors_table.setColumnWidth(0, 50)
+        self.errors_table.setColumnWidth(1, 150)
+        self.errors_table.setColumnWidth(2, 80)
+        self.errors_table.setColumnWidth(3, 150)
+        self.errors_table.setColumnWidth(4, 500)
+
+        layout.addWidget(self.errors_table)
+
+        # ========== КНОПКИ ==========
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+        )
+        ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        ok_button.setText("Закрыть")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2ecc71;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 30px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+        """)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
+
+        # Заполняем таблицу
+        self.populate_table()
+
+    def populate_table(self):
+        """Заполнение таблицы ошибок"""
+        filter_type = self.filter_combo.currentText()
+
+        filtered_errors = []
+        for error in self.errors:
+            error_msg = error.get('error', '').lower()
+
+            if filter_type == "Все ошибки":
+                filtered_errors.append(error)
+            elif filter_type == "Дубликаты" and 'дубликат' in error_msg:
+                filtered_errors.append(error)
+            elif filter_type == "Ошибки данных" and ('фио' in error_msg or 'отсутствует' in error_msg or 'не удалось' in error_msg):
+                filtered_errors.append(error)
+            elif filter_type == "Ошибки БД" and 'бд' in error_msg:
+                filtered_errors.append(error)
+
+        self.errors_table.setRowCount(len(filtered_errors))
+
+        for row, error in enumerate(filtered_errors):
+            error_msg = error.get('error', '')
+            error_type = self.get_error_type(error_msg)
+
+            items = [
+                QTableWidgetItem(str(row + 1)),
+                QTableWidgetItem(str(error.get('sheet', ''))),
+                QTableWidgetItem(str(error.get('row', ''))),
+                QTableWidgetItem(error_type),
+                QTableWidgetItem(error_msg),
+            ]
+
+            # Цветовая индикация типа ошибки
+            if error_type == "Дубликат":
+                items[3].setBackground(QColor(255, 243, 205))
+                items[3].setForeground(QColor(133, 100, 4))
+            elif error_type == "Ошибка данных":
+                items[3].setBackground(QColor(248, 215, 218))
+                items[3].setForeground(QColor(114, 28, 36))
+            elif error_type == "Ошибка БД":
+                items[3].setBackground(QColor(209, 236, 241))
+                items[3].setForeground(QColor(12, 84, 96))
+
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.errors_table.setItem(row, col, item)
+
+        # Подсвечиваем строки
+        for row in range(self.errors_table.rowCount()):
+            for col in range(self.errors_table.columnCount()):
+                item = self.errors_table.item(row, col)
+                if item and row % 2 == 0:
+                    item.setBackground(QColor(245, 245, 245))
+
+    def get_error_type(self, error_msg):
+        """Определение типа ошибки по сообщению"""
+        error_lower = error_msg.lower()
+        if 'дубликат' in error_lower:
+            return "Дубликат"
+        elif 'фио' in error_lower or 'отсутствует' in error_lower or 'не удалось' in error_lower:
+            return "Ошибка данных"
+        elif 'бд' in error_lower or 'база' in error_lower:
+            return "Ошибка БД"
+        else:
+            return "Другое"
+
+    def apply_filter(self):
+        """Применение фильтра"""
+        self.populate_table()
+
+    def export_errors(self):
+        """Экспорт ошибок в CSV"""
+        import pandas as pd
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 'Сохранить ошибки',
+            f'import_errors_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+            'CSV Files (*.csv);;All Files (*)'
+        )
+
+        if not file_path:
+            return
+
+        data = []
+        for error in self.errors:
+            data.append({
+                'Лист': error.get('sheet', ''),
+                'Строка': error.get('row', ''),
+                'Тип ошибки': self.get_error_type(error.get('error', '')),
+                'Описание': error.get('error', ''),
+            })
+
+        if data:
+            df = pd.DataFrame(data)
+            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            QMessageBox.information(self, "Успех", f"Ошибки экспортированы в файл:\n{file_path}")
+        else:
+            QMessageBox.warning(self, "Внимание", "Нет данных для экспорта")
 
 
 class ImportDialog(QDialog):
@@ -2909,21 +3183,39 @@ class ImportDialog(QDialog):
             self.progress_dialog.close()
 
         if success:
-            if errors:
-                error_text = "\n".join([f"Строка {e['row']} (лист '{e['sheet']}'): {e['error']}" for e in errors[:50]])
-                if len(errors) > 50:
-                    error_text += f"\n... и еще {len(errors) - 50} ошибок"
+            # Парсим сообщение для получения статистики
+            import re
 
-                reply = QMessageBox.question(
-                    self,
-                    "Импорт завершен с ошибками",
-                    f"{message}\n\nНайдено ошибок: {len(errors)}\n\nПоказать детали?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            # Извлекаем числа из сообщения
+            imported_match = re.search(r'Успешно импортировано: (\d+)', message)
+            duplicate_match = re.search(r'Пропущено дубликатов: (\d+)', message)
+            error_match = re.search(r'Ошибок: (\d+)', message)
+
+            imported_count = int(imported_match.group(1)) if imported_match else 0
+            duplicate_count = int(duplicate_match.group(1)) if duplicate_match else 0
+            error_count = int(error_match.group(1)) if error_match else 0
+
+            # Подсчитываем общее количество строк
+            total_rows = imported_count + duplicate_count + error_count
+
+            # Если есть ошибки, показываем красивый диалог
+            if errors:
+                dialog = ImportErrorsDialog(
+                    errors=errors,
+                    total_rows=total_rows,
+                    imported_count=imported_count,
+                    duplicate_count=duplicate_count,
+                    error_count=error_count,
+                    parent=self
                 )
-                if reply == QMessageBox.StandardButton.Yes:
-                    QMessageBox.information(self, "Детали ошибок", error_text)
+                dialog.exec()
             else:
-                QMessageBox.information(self, "Успех", message)
+                # Если ошибок нет, показываем простое сообщение
+                QMessageBox.information(
+                    self,
+                    "Импорт завершен",
+                    f"{message}\n\nВсе данные успешно импортированы!"
+                )
 
             self.accept()
         else:

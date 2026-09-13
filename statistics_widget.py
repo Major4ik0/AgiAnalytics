@@ -697,21 +697,14 @@ class ExpandableDepartmentCard(QFrame):
         total_plan = self.plan.get('plan_m', 0) + self.plan.get('plan_f', 0) + self.plan.get('plan_military', 0)
         if total_plan > 0:
             quick_stats_layout.addWidget(self._create_stat_badge("План", total_plan, "#f39c12"))
-
-        # Всего абитуриентов
-        total = self.stats.get('total', 0)
-        quick_stats_layout.addWidget(self._create_stat_badge("Всего", total, "#3498db"))
-
         # Отобраны
         applying = self.stats.get('applying_m', 0) + self.stats.get('applying_f', 0) + self.stats.get('applying_mil', 0)
-        quick_stats_layout.addWidget(self._create_stat_badge("Отобраны", applying, "#2ecc71"))
 
         # Процент выполнения
         if total_plan > 0:
             percent = int((applying / total_plan) * 100) if total_plan > 0 else 0
             quick_stats_layout.addWidget(self._create_percent_badge(percent))
 
-        quick_stats_layout.addStretch()
         header_layout.addWidget(quick_stats_widget)
 
         self.main_layout.addWidget(self.header_widget)
@@ -1149,28 +1142,37 @@ class StatisticsWidget(QWidget):
 
         summary_layout = self.summary_widget.layout()
 
-        total_applicants = sum(s.get('total', 0) for s in departments_stats)
-        total_applying = sum(
-            s.get('applying_m', 0) + s.get('applying_f', 0) + s.get('applying_mil', 0) for s in departments_stats)
-
-        # ИСПРАВЛЕНО: Считаем план ТОЛЬКО для видимых подразделений
+        # Считаем план ТОЛЬКО для видимых подразделений
         total_plans = 0
         for dept_id in visible_department_ids:
             plan = self.db.get_plan(dept_id, self.current_year)
             total_plans += plan.get('plan_m', 0) + plan.get('plan_f', 0) + plan.get('plan_military', 0)
 
+        # Отобрано (сумма по всем категориям)
+        total_applying = sum(
+            s.get('applying_m', 0) + s.get('applying_f', 0) + s.get('applying_mil', 0) for s in departments_stats)
+
+        # Дела в ВК (сумма по всем категориям)
+        total_vk = sum(
+            s.get('vk_m', 0) + s.get('vk_f', 0) + s.get('vk_mil', 0) for s in departments_stats)
+
+        # Дела в ОК (сумма по всем категориям)
+        total_ok = sum(
+            s.get('ok_m', 0) + s.get('ok_f', 0) + s.get('ok_mil', 0) for s in departments_stats)
+
         # Создаем виджеты сводки
         summary_items = [
-            ("Всего подразделений", len(departments_stats), "#3498db"),
-            ("Всего абитуриентов", total_applicants, "#3498db"),
+            ("План", total_plans, "#f39c12"),
             ("Отобрано", total_applying, "#2ecc71"),
-            ("План набора", total_plans, "#f39c12"),
+            ("Дела в ВК", total_vk, "#f39c12"),
+            ("Дела в ОК", total_ok, "#8e44ad"),
         ]
 
+        # Выполнение плана
         if total_plans > 0:
             percent = int((total_applying / total_plans) * 100) if total_plans > 0 else 0
             percent_color = "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"
-            summary_items.append((f"Выполнение плана", f"{percent}%", percent_color))
+            summary_items.append(("Выполнение плана", f"{percent}%", percent_color))
 
         for label, value, color in summary_items:
             item_widget = QWidget()
