@@ -819,7 +819,7 @@ class AdvancedSearchDialog(QDialog):
         self.filters = {}
         self.setModal(True)
         self.setWindowTitle('Расширенный поиск')
-        self.setMinimumSize(500, 450)
+        self.setMinimumSize(700, 600)
         self.setMaximumSize(700, 600)
         self.init_ui()
 
@@ -872,7 +872,7 @@ class AdvancedSearchDialog(QDialog):
         self.applicant_name.setPlaceholderText("Петров Петр Петрович (полностью, без сокращений)")
         self.applicant_name.setMinimumHeight(35)
         self.applicant_name.setToolTip("Введите полное ФИО: Фамилия Имя Отчество (3 слова)")
-        applicant_layout.addRow("ФИО агитатора *:", self.applicant_name)
+        applicant_layout.addRow("ФИО агитатора:", self.applicant_name)
 
         # Субъект РФ
         self.region = QComboBox()
@@ -1071,12 +1071,15 @@ class AdvancedSearchDialog(QDialog):
             self.region.addItems(default_regions)
 
     def load_departments(self):
-        """Загрузка подразделений (уникальные из БД)"""
+        """Загрузка подразделений из справочника (без дублей)"""
         if self.db:
             cursor = self.db.conn.cursor()
-            cursor.execute(
-                'SELECT DISTINCT agitator_department FROM applicants WHERE agitator_department IS NOT NULL AND agitator_department != "" ORDER BY agitator_department')
-            departments = [row['agitator_department'] for row in cursor.fetchall()]
+            cursor.execute('''
+                SELECT DISTINCT name FROM departments 
+                WHERE type != "root" 
+                ORDER BY name
+            ''')
+            departments = [row['name'] for row in cursor.fetchall()]
             self.agitator_department.clear()
             self.agitator_department.addItem("")
             self.agitator_department.addItems(departments)
@@ -1120,56 +1123,75 @@ class AdvancedSearchDialog(QDialog):
     def get_filters(self):
         """Получение выбранных фильтров (только заполненные)"""
         filters = {}
-        # Абитуриент - только если не пусто
+
+        # ФИО абитуриента
         applicant_name = self.applicant_name.text().strip()
         if applicant_name:
             filters['applicant_name'] = applicant_name
+
+        # Регион
         region = self.region.currentText().strip()
-        if region and region != "Все регионы": # Изменено
+        if region and region != "Все регионы":
             filters['region'] = region
+
+        # Населенный пункт
         city = self.city.text().strip()
         if city:
             filters['city'] = city
-        # Категория - только если не "все"
+
+        # Категория
         category = self.category.currentText()
-        if category != "все" and category != "Все категории":
-            if category == "Мужчина":
-                filters['category'] = 'м'
-            elif category == "Женщина":
-                filters['category'] = 'ж'
-            elif category == "Военнослужащий":
-                filters['category'] = 'всл'
-        # Образование (только выбранные)
+        if category == "Мужчина":
+            filters['category'] = 'м'
+        elif category == "Женщина":
+            filters['category'] = 'ж'
+        elif category == "Военнослужащий":
+            filters['category'] = 'всл'
+
+        # Образование
         selected_education = [cb.text() for cb in self.education_checkboxes if cb.isChecked()]
         if selected_education:
             filters['education'] = selected_education
-        # Статус - только если не "все"
+
+        # Статус
         status = self.status.currentText()
-        if status != "все" and status != "Все статусы":
-            filters['status'] = status
-        # Агитатор
+        if status == "поступает":
+            filters['status'] = 'поступает'
+        elif status == "отказывается":
+            filters['status'] = 'отказывается'
+
+        # ФИО агитатора
         agitator_name = self.agitator_name.text().strip()
         if agitator_name:
             filters['agitator_name'] = agitator_name
+
+        # Подразделение агитатора
         agitator_department = self.agitator_department.currentText().strip()
         if agitator_department:
             filters['agitator_department'] = agitator_department
+
         # Тип агитатора
         agitator_type = self.agitator_type.currentText()
-        if agitator_type != "все" and agitator_type != "Все":
-            filters['agitator_is_cadet'] = (agitator_type == "курсант")
+        if agitator_type == "курсант":
+            filters['agitator_is_cadet'] = True
+        elif agitator_type == "офицер/военнослужащий":
+            filters['agitator_is_cadet'] = False
+
         # Документы
         document_status = self.document_status.currentText().strip()
         if document_status:
             filters['document_status'] = document_status
-        # Курс - только если не "все"
+
+        # Курс
         course = self.course.currentText()
-        if course != "все" and course != "Все курсы":
+        if course and course != "Все курсы":
             filters['agitator_course'] = course
+
         # Группа
         group = self.group.text().strip()
         if group:
             filters['agitator_group'] = group
+
         return filters
 
 
@@ -2221,10 +2243,10 @@ class ImportWorker(QThread):
         required_fields = {
             'applicant_name': 'ФИО абитуриента',
             'region': 'Субъект РФ',
-            'city': 'Населенный пункт',
+            # 'city': 'Населенный пункт',
             'category': 'Категория',
             'phone': 'Телефон',
-            'education': 'Образование',
+            # 'education': 'Образование',
             'status': 'Статус',
             'document_status': 'Документы',
             'agitator_name': 'ФИО агитатора',
@@ -3487,20 +3509,19 @@ class MainWindow(QMainWindow):
         """Открытие диалога расширенного поиска"""
         dialog = AdvancedSearchDialog(self.db, self)
 
-        # Если есть сохраненные фильтры, загружаем их (опционально)
-        if self.advanced_filters:
-            # Здесь можно восстановить предыдущие фильтры
-            pass
-
         if dialog.exec():
             self.advanced_filters = dialog.get_filters()
             self.refresh_data()
 
-            # Показываем информацию о примененных фильтрах
             if self.advanced_filters:
                 filter_count = len(self.advanced_filters)
                 self.statusBar().showMessage(f"Применено расширенных фильтров: {filter_count}", 3000)
-                # Подсвечиваем кнопку
+
+                # Блокируем обычный поиск и очищаем его
+                self.search_input.clear()
+                self.search_input.setEnabled(False)
+                self.search_input.setPlaceholderText("Отключено: используются расширенные фильтры")
+
                 self.advanced_search_btn.setStyleSheet("""
                     QPushButton {
                         background-color: #8e44ad;
@@ -3521,24 +3542,26 @@ class MainWindow(QMainWindow):
         """Сброс всех фильтров"""
         # Сбрасываем обычный поиск
         self.search_input.clear()
-
+        self.search_input.setEnabled(True)
+        self.search_input.setPlaceholderText('Введите текст для поиска...')
         # Сбрасываем расширенные фильтры
         self.advanced_filters = {}
-
         # Сбрасываем фильтр по курсу (если есть)
         if hasattr(self, 'course_filter'):
             self.course_filter.setCurrentIndex(0)
-
         # Обновляем таблицу
         self.refresh_data()
-
         # Сбрасываем стиль кнопки
         self.reset_filters_style()
-
         self.statusBar().showMessage("Все фильтры сброшены", 2000)
 
     def reset_filters_style(self):
         """Сброс стиля кнопки расширенного поиска"""
+        # Разблокируем обычный поиск
+        if hasattr(self, 'search_input'):
+            self.search_input.setEnabled(True)
+            self.search_input.setPlaceholderText('Введите текст для поиска...')
+
         self.advanced_search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #9b59b6;
@@ -3850,8 +3873,12 @@ class MainWindow(QMainWindow):
 
         # Обычный поиск (дополнительно к расширенному)
         search_text = self.search_input.text().lower().strip()
-        if search_text and not self.advanced_filters:
-            # Если нет расширенных фильтров, применяем обычный поиск
+        if self.advanced_filters:
+            # Если применены расширенные фильтры — обычный поиск НЕ применяется
+            # (данные уже отфильтрованы в get_applicants)
+            pass
+        elif search_text:
+            # Если расширенных фильтров нет — применяем обычный поиск
             filtered_applicants = []
             for applicant in applicants:
                 applicant_dict = dict(applicant)
@@ -3862,21 +3889,6 @@ class MainWindow(QMainWindow):
                     str(applicant_dict.get('phone', '')),
                     str(applicant_dict.get('agitator_name', '')),
                     str(applicant_dict.get('agitator_department', '')),
-                ]
-                if any(search_text in field.lower() for field in text_fields):
-                    filtered_applicants.append(applicant)
-            applicants = filtered_applicants
-        elif search_text and self.advanced_filters:
-            # Если есть расширенные фильтры, обычный поиск работает поверх них
-            filtered_applicants = []
-            for applicant in applicants:
-                applicant_dict = dict(applicant)
-                text_fields = [
-                    str(applicant_dict.get('applicant_name', '')),
-                    str(applicant_dict.get('region', '')),
-                    str(applicant_dict.get('city', '')),
-                    str(applicant_dict.get('phone', '')),
-                    str(applicant_dict.get('agitator_name', '')),
                 ]
                 if any(search_text in field.lower() for field in text_fields):
                     filtered_applicants.append(applicant)
@@ -5189,19 +5201,22 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, 'Ошибка', 'Не удалось добавить права доступа.')
 
-    def check_can_add(self):
-        """Проверка, можно ли добавлять сегодня"""
+    def check_can_add(self, action_name="Добавление"):
+        """Проверка, можно ли выполнять действия сегодня (по рабочим дням)"""
         from datetime import datetime
         current_day = datetime.now().weekday() + 1  # пн=1, вс=7
         work_days = self.db.get_work_days()
-        return current_day in work_days
+
+        if current_day not in work_days:
+            QMessageBox.warning(self, "Внимание",
+                                f"{action_name} записей запрещено!\n"
+                                "Пожалуйста, обратитесь к администратору.")
+            return False
+        return True
 
     def add_applicant(self):
         """Добавление нового абитуриента"""
-        if not self.check_can_add():
-            QMessageBox.warning(self, "Внимание",
-                                "В выходные дни добавление записей запрещено!\n"
-                                "Пожалуйста, обратитесь к администратору.")
+        if not self.check_can_add("Добавление"):
             return
 
         dialog = ApplicantDialog(
@@ -5242,6 +5257,9 @@ class MainWindow(QMainWindow):
 
     def edit_applicant(self):
         """Редактирование выбранного абитуриента"""
+        if not self.check_can_add("Редактирование"):
+            return
+
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.warning(self, 'Внимание', 'Выберите запись для редактирования!')
@@ -5304,6 +5322,9 @@ class MainWindow(QMainWindow):
 
     def delete_applicant(self):
         """Удаление выбранного абитуриента"""
+        if not self.check_can_add("Удаление"):
+            return
+
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.warning(self, 'Внимание', 'Выберите запись для удаления!')
@@ -5347,6 +5368,7 @@ class MainWindow(QMainWindow):
 
                 if can_delete:
                     self.db.delete_applicant(applicant_id, self.user_data['id'], self.user_data['role'])
+                    QMessageBox.information(self, 'Успех', 'Записи успешно удалены!')
                 else:
                     QMessageBox.warning(self, 'Ошибка',
                                         'Вы можете удалять только:\n'
@@ -5357,10 +5379,11 @@ class MainWindow(QMainWindow):
 
             self.refresh_data()
             self.stats_tab.update_statistics()
-            QMessageBox.information(self, 'Успех', 'Записи успешно удалены!')
 
     def import_from_excel(self):
         """Импорт данных из Excel файла"""
+        if not self.check_can_add("Импорт"):
+            return
         dialog = ImportDialog(self.db, self.user_data['id'], self)
         if dialog.exec():
             # Обновляем данные после импорта

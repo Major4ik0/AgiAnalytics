@@ -355,21 +355,70 @@ class Database:
         params = []
 
         # ===== ВАЖНО: ВСЕ ПОЛЬЗОВАТЕЛИ ВИДЯТ ВСЕХ АБИТУРИЕНТОВ =====
-        # Нет фильтрации по created_by или подразделению!
 
         if filters:
-            # AND между разными полями
             and_conditions = []
 
             # ФИО абитуриента
             if filters.get('applicant_name'):
                 and_conditions.append("a.applicant_name LIKE ?")
                 params.append(f"%{filters['applicant_name']}%")
+
             # Регион
             if filters.get('region'):
                 and_conditions.append("a.region LIKE ?")
                 params.append(f"%{filters['region']}%")
-            # ... остальные фильтры ...
+
+            # Населенный пункт
+            if filters.get('city'):
+                and_conditions.append("a.city LIKE ?")
+                params.append(f"%{filters['city']}%")
+
+            # Категория
+            if filters.get('category'):
+                and_conditions.append("a.category = ?")
+                params.append(filters['category'])
+
+            # Образование (список)
+            if filters.get('education'):
+                placeholders = ','.join(['?'] * len(filters['education']))
+                and_conditions.append(f"a.education IN ({placeholders})")
+                params.extend(filters['education'])
+
+            # Статус
+            if filters.get('status'):
+                and_conditions.append("a.status = ?")
+                params.append(filters['status'])
+
+            # ФИО агитатора
+            if filters.get('agitator_name'):
+                and_conditions.append("a.agitator_name LIKE ?")
+                params.append(f"%{filters['agitator_name']}%")
+
+            # Подразделение агитатора
+            if filters.get('agitator_department'):
+                and_conditions.append("a.agitator_department LIKE ?")
+                params.append(f"%{filters['agitator_department']}%")
+
+            # Тип агитатора (курсант)
+            if 'agitator_is_cadet' in filters:
+                and_conditions.append("a.agitator_is_cadet = ?")
+                params.append(1 if filters['agitator_is_cadet'] else 0)
+
+            # Статус документов
+            if filters.get('document_status'):
+                and_conditions.append("a.document_status LIKE ?")
+                params.append(f"%{filters['document_status']}%")
+
+            # Курс агитатора
+            if filters.get('agitator_course'):
+                and_conditions.append("a.agitator_course = ?")
+                params.append(filters['agitator_course'])
+
+            # Группа агитатора
+            if filters.get('agitator_group'):
+                and_conditions.append("a.agitator_group LIKE ?")
+                params.append(f"%{filters['agitator_group']}%")
 
             if and_conditions:
                 query += " AND (" + " AND ".join(and_conditions) + ")"
@@ -421,14 +470,6 @@ class Database:
     def delete_applicant(self, applicant_id, user_id=None, user_role=None):
         """Удаление абитуриента с проверкой прав"""
         cursor = self.conn.cursor()
-
-        # Проверка прав: может удалить только если создал сам
-        if user_role != 'admin':
-            cursor.execute('SELECT created_by FROM applicants WHERE id = ?', (applicant_id,))
-            result = cursor.fetchone()
-            if not result or result['created_by'] != user_id:
-                return False  # Нет прав
-
         cursor.execute('DELETE FROM applicants WHERE id = ?', (applicant_id,))
         self.conn.commit()
         return cursor.rowcount > 0
@@ -955,7 +996,9 @@ class Database:
         return cursor.fetchall()
 
     def get_detailed_region_stats(self, department_id=None, region_id=None):
-        """Детальная статистика по регионам с планом и статусами документов"""
+        """Детальная статистика по регионам с планом и статусами документов.
+        Регионы, не закреплённые за подразделением, группируются в 'Вне плана'.
+        """
         cursor = self.conn.cursor()
 
         # Получаем план ТОЛЬКО для этого подразделения
@@ -965,12 +1008,23 @@ class Database:
                 SELECT SUM(plan_m + plan_f + plan_military) as total_plan
                 FROM plans 
                 WHERE department_id = ? AND year = strftime('%Y', 'now')
-            ''', (department_id,))  # <-- Фильтруем по department_id
+            ''', (department_id,))
             result = cursor.fetchone()
             if result and result['total_plan']:
                 plan = result['total_plan']
 
-        # Запрос для регионов
+        # Получаем список закреплённых регионов для подразделения
+        assigned_regions = set()
+        if department_id:
+            cursor.execute('''
+                SELECT r.name 
+                FROM department_regions dr
+                JOIN regions r ON r.id = dr.region_id
+                WHERE dr.department_id = ?
+            ''', (department_id,))
+            assigned_regions = {row['name'] for row in cursor.fetchall()}
+
+        # Запрос для регионов (все записи по подразделению)
         query = '''
             SELECT 
                 COALESCE(r.name, 'Не указан') as region_name,
@@ -980,6 +1034,7 @@ class Database:
                 COUNT(CASE WHEN a.document_status = 'ОК' THEN 1 END) as ok,
                 COUNT(CASE WHEN a.document_status = 'ВА ВКО' THEN 1 END) as vavko,
                 COUNT(CASE WHEN a.category = 'м' THEN 1 END) as male,
+                COUNT(CASE WHEN a.category = 'ж' THEN 1 END) as female,
                 COUNT(CASE WHEN a.category = 'всл' THEN 1 END) as military,
                 COUNT(*) as total
             FROM applicants a
@@ -1001,16 +1056,68 @@ class Database:
         cursor.execute(query, params)
         results = cursor.fetchall()
 
-        # Преобразуем в список словарей и добавляем план
-        stats_list = []
+        # Разделяем регионы на "закреплённые" и "вне плана"
+        assigned_stats = []
+        outside_stats = {
+            'region_name': 'Вне плана',
+            'selected': 0,
+            'not_selected': 0,
+            'vk': 0,
+            'ok': 0,
+            'vavko': 0,
+            'male': 0,
+            'female': 0,
+            'military': 0,
+            'total': 0,
+            'plan': plan,
+        }
+
         for row in results:
             stat_dict = dict(row)
-            stat_dict['plan'] = plan  # Теперь план только для этого подразделения
-            stats_list.append(stat_dict)
+            stat_dict['plan'] = plan
 
-        # Если нет данных по регионам, но есть план - показываем пустой регион с планом
-        if not stats_list and plan > 0:
-            stats_list.append({
+            region_name = stat_dict.get('region_name', 'Не указан')
+
+            # Если регион закреплён за подразделением — добавляем в основной список
+            if region_name in assigned_regions:
+                assigned_stats.append(stat_dict)
+            else:
+                # Иначе — суммируем в "Вне плана"
+                outside_stats['selected'] += stat_dict.get('selected', 0)
+                outside_stats['not_selected'] += stat_dict.get('not_selected', 0)
+                outside_stats['vk'] += stat_dict.get('vk', 0)
+                outside_stats['ok'] += stat_dict.get('ok', 0)
+                outside_stats['vavko'] += stat_dict.get('vavko', 0)
+                outside_stats['male'] += stat_dict.get('male', 0)
+                outside_stats['female'] += stat_dict.get('female', 0)
+                outside_stats['military'] += stat_dict.get('military', 0)
+                outside_stats['total'] += stat_dict.get('total', 0)
+
+        # Если фильтр по конкретному региону — показываем только его
+        if region_id and not assigned_stats and outside_stats['total'] == 0:
+            # Ничего не найдено — пустой список
+            return []
+
+        # Если фильтр по конкретному региону и он вне плана — показываем только "Вне плана"
+        if region_id:
+            # Проверяем, есть ли регион в списке назначенных
+            cursor.execute('SELECT name FROM regions WHERE id = ?', (region_id,))
+            region_row = cursor.fetchone()
+            if region_row and region_row['name'] not in assigned_regions:
+                return [outside_stats] if outside_stats['total'] > 0 else []
+
+        # Формируем итоговый список: сначала закреплённые, потом "Вне плана"
+        final_stats = assigned_stats
+
+        # Добавляем "Вне плана" только если там есть данные ИЛИ если это не фильтр по региону
+        if outside_stats['total'] > 0 or (not region_id and department_id):
+            # Показываем "Вне плана" только если есть хоть какие-то данные ИЛИ если это не фильтр
+            if outside_stats['total'] > 0:
+                final_stats.append(outside_stats)
+
+        # Если вообще нет данных, но есть план — показываем пустой регион с планом
+        if not final_stats and plan > 0:
+            final_stats.append({
                 'region_name': 'Нет данных',
                 'selected': 0,
                 'not_selected': 0,
@@ -1018,12 +1125,13 @@ class Database:
                 'ok': 0,
                 'vavko': 0,
                 'male': 0,
+                'female': 0,
                 'military': 0,
                 'total': 0,
                 'plan': plan
             })
 
-        return stats_list
+        return final_stats
 
     def get_statistics_by_department_for_user(self, department_name, user_id, user_role):
         """Получение статистики по подразделению для конкретного пользователя"""

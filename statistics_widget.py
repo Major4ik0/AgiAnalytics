@@ -697,12 +697,10 @@ class ExpandableDepartmentCard(QFrame):
         total_plan = self.plan.get('plan_m', 0) + self.plan.get('plan_f', 0) + self.plan.get('plan_military', 0)
         if total_plan > 0:
             quick_stats_layout.addWidget(self._create_stat_badge("План", total_plan, "#f39c12"))
-        # Отобраны
-        applying = self.stats.get('applying_m', 0) + self.stats.get('applying_f', 0) + self.stats.get('applying_mil', 0)
-
-        # Процент выполнения
+        # Процент выполнения = (Дела в ОК / План) * 100%
+        ok_total = self.stats.get('ok_m', 0) + self.stats.get('ok_f', 0) + self.stats.get('ok_mil', 0)
         if total_plan > 0:
-            percent = int((applying / total_plan) * 100) if total_plan > 0 else 0
+            percent = int((ok_total / total_plan) * 100)
             quick_stats_layout.addWidget(self._create_percent_badge(percent))
 
         header_layout.addWidget(quick_stats_widget)
@@ -1170,7 +1168,7 @@ class StatisticsWidget(QWidget):
 
         # Выполнение плана
         if total_plans > 0:
-            percent = int((total_applying / total_plans) * 100) if total_plans > 0 else 0
+            percent = int((total_ok / total_plans) * 100) if total_plans > 0 else 0
             percent_color = "#2ecc71" if percent >= 80 else "#f39c12" if percent >= 50 else "#e74c3c"
             summary_items.append(("Выполнение плана", f"{percent}%", percent_color))
 
@@ -1797,6 +1795,7 @@ class RegionStatsDialog(QDialog):
     def load_regions(self):
         """Загрузка регионов"""
         regions = self.db.get_regions_for_department(self.department_id)
+        self.region_combo.addItem("Вне плана")
         for region in regions:
             self.region_combo.addItem(region['name'])
 
@@ -1858,14 +1857,21 @@ class RegionStatsDialog(QDialog):
         region_name = self.region_combo.currentText()
         region_id = None
 
-        if region_name != "Все регионы":
+        if region_name == "Вне плана":
+            # Особая логика — показать только внеплановые
+            stats = self.db.get_detailed_region_stats(self.department_id, None)
+            # Отфильтровать только "Вне плана"
+            stats = [s for s in stats if s.get('region_name') == 'Вне плана']
+        elif region_name != "Все регионы":
             cursor = self.db.conn.cursor()
             cursor.execute('SELECT id FROM regions WHERE name = ?', (region_name,))
             result = cursor.fetchone()
             if result:
                 region_id = result['id']
+            stats = self.db.get_detailed_region_stats(self.department_id, region_id)
+        else:
+            stats = self.db.get_detailed_region_stats(self.department_id, None)
 
-        stats = self.db.get_detailed_region_stats(self.department_id, region_id)
         self.update_summary(stats)
 
         while self.scroll_layout.count():
