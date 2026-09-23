@@ -1531,7 +1531,7 @@ class RegionCard(QFrame):
         cats_layout.addWidget(self._create_stat_block("Мужчины", male, "#3498db"))
         # cats_layout.addWidget(self._create_stat_block("Женщины", female, "#e67e22"))
         cats_layout.addWidget(self._create_stat_block("Военнослужащие", military, "#1abc9c"))
-        cats_layout.addWidget(self._create_stat_block("Не отобраны", not_selected, "#e74c3c"))
+        # cats_layout.addWidget(self._create_stat_block("Не отобраны", not_selected, "#e74c3c"))
         cats_layout.addStretch()
         content_layout.addWidget(cats_widget)
 

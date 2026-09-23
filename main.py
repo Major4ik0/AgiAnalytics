@@ -872,7 +872,7 @@ class AdvancedSearchDialog(QDialog):
         self.applicant_name.setPlaceholderText("Петров Петр Петрович (полностью, без сокращений)")
         self.applicant_name.setMinimumHeight(35)
         self.applicant_name.setToolTip("Введите полное ФИО: Фамилия Имя Отчество (3 слова)")
-        applicant_layout.addRow("ФИО агитатора:", self.applicant_name)
+        applicant_layout.addRow("ФИО абитуриента:", self.applicant_name)
 
         # Субъект РФ
         self.region = QComboBox()
@@ -2289,12 +2289,13 @@ class ImportWorker(QThread):
         return digits
 
     def check_duplicate(self, applicant_data):
-        """Проверка на дубликат"""
+        """Проверка на дубликат по ФИО (без учёта регистра и лишних пробелов)"""
         cursor = self.db.conn.cursor()
+        name = (applicant_data.get('applicant_name') or '').strip()
         cursor.execute('''
             SELECT COUNT(*) FROM applicants 
-            WHERE applicant_name = ? AND phone = ?
-        ''', (applicant_data['applicant_name'], applicant_data['phone']))
+            WHERE LOWER(TRIM(applicant_name)) = LOWER(TRIM(?))
+        ''', (name,))
         count = cursor.fetchone()[0]
         return count > 0
 
@@ -5202,7 +5203,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, 'Ошибка', 'Не удалось добавить права доступа.')
 
     def check_can_add(self, action_name="Добавление"):
-        """Проверка, можно ли выполнять действия сегодня (по рабочим дням)"""
+        """Проверка, можно ли выполнять действия сегодня (по рабочим дням).
+        Администратор может работать в любой день недели."""
+        if self.user_data.get('role') == 'admin':
+            return True
+
         from datetime import datetime
         current_day = datetime.now().weekday() + 1  # пн=1, вс=7
         work_days = self.db.get_work_days()
@@ -5668,16 +5673,13 @@ class MainWindow(QMainWindow):
         return phone
 
     def check_duplicate(self, applicant_data):
-        """Проверка на дубликат (все пользователи)"""
+        """Проверка на дубликат по ФИО (без учёта регистра и лишних пробелов)"""
         cursor = self.db.conn.cursor()
+        name = (applicant_data.get('applicant_name') or '').strip()
         cursor.execute('''
             SELECT COUNT(*) FROM applicants 
-            WHERE applicant_name = ?
-            AND phone = ?
-            AND course = ?
-        ''', (applicant_data['applicant_name'],
-              applicant_data['phone'],
-              applicant_data['course']))
+            WHERE LOWER(TRIM(applicant_name)) = LOWER(TRIM(?))
+        ''', (name,))
         count = cursor.fetchone()[0]
         return count > 0
 

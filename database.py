@@ -320,9 +320,14 @@ class Database:
         return cursor.lastrowid
 
     def check_duplicate_applicant(self, name, phone=None):
-        """Проверка на дубликат абитуриента"""
+        """Проверка на дубликат абитуриента по ФИО"""
+        if not name:
+            return False
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ?', (name,))
+        cursor.execute('''
+            SELECT id FROM applicants 
+            WHERE LOWER(TRIM(applicant_name)) = LOWER(TRIM(?))
+        ''', (name.strip(),))
         return cursor.fetchone() is not None
 
     def get_applicants(self, user_id=None, role=None, department=None, filters=None):
@@ -708,9 +713,14 @@ class Database:
     # ==================== ПОЛЬЗОВАТЕЛИ ====================
 
     def check_duplicate_by_name(self, name):
-        """Проверка на дубликат абитуриента по ФИО"""
+        """Проверка на дубликат абитуриента по ФИО (без учёта регистра и пробелов)"""
+        if not name:
+            return False
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id FROM applicants WHERE applicant_name = ?', (name,))
+        cursor.execute('''
+            SELECT id FROM applicants 
+            WHERE LOWER(TRIM(applicant_name)) = LOWER(TRIM(?))
+        ''', (name.strip(),))
         return cursor.fetchone() is not None
 
     def get_user_by_credentials(self, username, password):

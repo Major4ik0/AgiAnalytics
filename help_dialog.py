@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Модуль интерактивного диалога помощи
+Модуль интерактивного диалога помощи AgiAnalytics
+Современный интерфейс в премиальном минималистичном стиле без использования эмодзи.
 """
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QWidget,
                              QFrame, QGridLayout, QListWidget,
-                             QListWidgetItem, QStackedWidget)
+                             QListWidgetItem, QStackedWidget, QLineEdit,
+                             QProgressBar)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QIcon
-from resource_helper import resource_path
+from PyQt5.QtGui import QFont
 
 
 class HelpDialog(QDialog):
-    """Диалог интерактивной помощи"""
+    """Диалог интерактивной помощи в современном стиле"""
 
     def __init__(self, role, db, parent=None):
         super().__init__(parent)
@@ -20,12 +21,36 @@ class HelpDialog(QDialog):
         self.db = db
         self.current_step = 0
         self.setModal(True)
-        self.setWindowTitle('Интерактивная помощь')
-        self.setMinimumSize(850, 650)
-        self.setMaximumSize(1100, 750)
+        self.setWindowTitle('Справка и руководство пользователя — AgiAnalytics')
+        self.setMinimumSize(960, 680)
+        self.resize(1020, 720)
+
+        # Главная палитра стилей и сброс конфликтующих стилей
         self.setStyleSheet("""
             QDialog {
-                background-color: #f5f6fa;
+                background-color: #f8fafc;
+                font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background-color: #f1f5f9;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #cbd5e1;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #94a3b8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
         self.init_ui()
@@ -35,69 +60,81 @@ class HelpDialog(QDialog):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Верхний бар
+        # ================= 1. ВЕРХНЯЯ ПАНЕЛЬ (HEADER) =================
         header_widget = QWidget()
-        header_widget.setFixedHeight(70)
+        header_widget.setFixedHeight(72)
         header_widget.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #6c5ce7, stop:1 #a29bfe);
+                background-color: #0f172a;
+                border-bottom: 1px solid #1e293b;
             }
         """)
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(30, 0, 30, 0)
+        header_layout.setContentsMargins(24, 0, 24, 0)
+        header_layout.setSpacing(16)
 
-        # Заголовок
-        title_widget = QWidget()
-        title_layout = QHBoxLayout(title_widget)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(12)
+        # Блок заголовка
+        titles_text_layout = QVBoxLayout()
+        titles_text_layout.setSpacing(2)
+        titles_text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        icon_label = QLabel()
-        icon_path = resource_path("icons/help.png")
-        if icon_path:
-            icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
-        else:
-            icon_label.setText("?")
-            icon_label.setStyleSheet("""
-                QLabel {
-                    background-color: rgba(255,255,255,0.2);
-                    color: white;
-                    border-radius: 18px;
-                    font-size: 18px;
-                    font-weight: bold;
-                }
-            """)
-        icon_label.setFixedSize(36, 36)
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_layout.addWidget(icon_label)
+        title_text = QLabel("Интерактивное руководство пользователя")
+        title_text.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: 700; font-family: 'Segoe UI';")
 
-        title_text = QLabel("Интерактивная помощь")
-        title_text.setStyleSheet("color: white; font-size: 20px; font-weight: bold;")
-        title_layout.addWidget(title_text)
+        subtitle_text = QLabel("AgiAnalytics • Система учета и аналитики абитуриентов")
+        subtitle_text.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 400;")
 
-        header_layout.addWidget(title_widget)
+        titles_text_layout.addWidget(title_text)
+        titles_text_layout.addWidget(subtitle_text)
+        header_layout.addLayout(titles_text_layout)
+
         header_layout.addStretch()
 
-        # Индикатор прогресса
-        self.progress_label = QLabel("1 из 12")
-        self.progress_label.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 13px;")
-        header_layout.addWidget(self.progress_label)
+        # Прогресс прохождения
+        progress_box = QVBoxLayout()
+        progress_box.setSpacing(4)
+        progress_box.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.progress_label = QLabel("Шаг 1 из 11")
+        self.progress_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.progress_label.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600;")
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(5)
+        self.progress_bar.setFixedWidth(150)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #334155;
+                border: none;
+                border-radius: 2px;
+            }
+            QProgressBar::chunk {
+                background-color: #2563eb;
+                border-radius: 2px;
+            }
+        """)
+
+        progress_box.addWidget(self.progress_label)
+        progress_box.addWidget(self.progress_bar)
+        header_layout.addLayout(progress_box)
 
         # Кнопка закрытия
-        close_btn = QPushButton("X")
-        close_btn.setFixedSize(32, 32)
+        close_btn = QPushButton("Закрыть")
+        close_btn.setFixedSize(80, 32)
+        close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255,255,255,0.1);
-                color: white;
-                border: none;
-                border-radius: 16px;
-                font-size: 14px;
-                font-weight: bold;
+                background-color: #1e293b;
+                color: #e2e8f0;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background-color: rgba(255,255,255,0.2);
+                background-color: #334155;
+                color: #ffffff;
             }
         """)
         close_btn.clicked.connect(self.accept)
@@ -105,36 +142,46 @@ class HelpDialog(QDialog):
 
         main_layout.addWidget(header_widget)
 
-        # Основной контент
+        # ================= 2. ОСНОВНОЙ КОНТЕНТ =================
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        # Левая панель - навигация
+        # Левая панель — Навигация
         nav_widget = QWidget()
-        nav_widget.setFixedWidth(240)
+        nav_widget.setFixedWidth(270)
         nav_widget.setStyleSheet("""
             QWidget {
-                background-color: white;
-                border-right: 1px solid #e9ecef;
+                background-color: #ffffff;
+                border-right: 1px solid #e2e8f0;
             }
         """)
         nav_layout = QVBoxLayout(nav_widget)
-        nav_layout.setContentsMargins(0, 20, 0, 20)
-        nav_layout.setSpacing(0)
+        nav_layout.setContentsMargins(16, 16, 16, 16)
+        nav_layout.setSpacing(12)
 
-        nav_title = QLabel("Содержание")
-        nav_title.setStyleSheet("""
-            QLabel {
-                color: #2d3436;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 0 20px 15px 20px;
+        # Поиск по разделам
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Поиск по справке...")
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #f8fafc;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 13px;
+                color: #0f172a;
+            }
+            QLineEdit:focus {
+                border-color: #2563eb;
+                background-color: #ffffff;
             }
         """)
-        nav_layout.addWidget(nav_title)
+        self.search_input.textChanged.connect(self.filter_navigation)
+        nav_layout.addWidget(self.search_input)
 
+        # Список тем
         self.nav_list = QListWidget()
         self.nav_list.setStyleSheet("""
             QListWidget {
@@ -143,110 +190,115 @@ class HelpDialog(QDialog):
                 outline: none;
             }
             QListWidget::item {
-                padding: 10px 20px;
-                color: #636e72;
-                border: none;
-                border-left: 3px solid transparent;
+                padding: 9px 12px;
+                color: #475569;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                margin-bottom: 2px;
             }
             QListWidget::item:hover {
-                background-color: #f8f9fa;
+                background-color: #f1f5f9;
+                color: #0f172a;
             }
             QListWidget::item:selected {
-                background-color: #f0edff;
-                color: #6c5ce7;
-                border-left: 3px solid #6c5ce7;
+                background-color: #eff6ff;
+                color: #1d4ed8;
+                font-weight: 600;
             }
         """)
         self.nav_list.itemClicked.connect(self.on_nav_clicked)
         nav_layout.addWidget(self.nav_list)
 
-        nav_buttons_widget = QWidget()
-        nav_buttons_layout = QHBoxLayout(nav_buttons_widget)
-        nav_buttons_layout.setContentsMargins(20, 15, 20, 15)
+        # Кнопки Перехода
+        nav_buttons_layout = QHBoxLayout()
+        nav_buttons_layout.setSpacing(8)
 
-        self.prev_btn = QPushButton("< Назад")
+        self.prev_btn = QPushButton("← Назад")
+        self.prev_btn.setFixedHeight(36)
+        self.prev_btn.setCursor(Qt.PointingHandCursor)
         self.prev_btn.setStyleSheet("""
             QPushButton {
-                background-color: #dfe6e9;
-                color: #2d3436;
-                border: none;
+                background-color: #f1f5f9;
+                color: #334155;
+                border: 1px solid #cbd5e1;
                 border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
+                font-weight: 600;
                 font-size: 12px;
             }
             QPushButton:hover:!disabled {
-                background-color: #b2bec3;
+                background-color: #e2e8f0;
             }
             QPushButton:disabled {
-                opacity: 0.5;
+                opacity: 0.4;
+                color: #94a3b8;
+                background-color: #f8fafc;
+                border-color: #e2e8f0;
             }
         """)
         self.prev_btn.clicked.connect(self.prev_step)
 
-        self.next_btn = QPushButton("Далее >")
+        self.next_btn = QPushButton("Далее →")
+        self.next_btn.setFixedHeight(36)
+        self.next_btn.setCursor(Qt.PointingHandCursor)
         self.next_btn.setStyleSheet("""
             QPushButton {
-                background-color: #6c5ce7;
-                color: white;
+                background-color: #2563eb;
+                color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
+                font-weight: 600;
                 font-size: 12px;
             }
             QPushButton:hover:!disabled {
-                background-color: #5f3dc4;
+                background-color: #1d4ed8;
             }
             QPushButton:disabled {
-                opacity: 0.5;
+                background-color: #93c5fd;
+                color: #ffffff;
             }
         """)
         self.next_btn.clicked.connect(self.next_step)
 
         nav_buttons_layout.addWidget(self.prev_btn)
         nav_buttons_layout.addWidget(self.next_btn)
-        nav_layout.addWidget(nav_buttons_widget)
+        nav_layout.addLayout(nav_buttons_layout)
 
         content_layout.addWidget(nav_widget)
 
-        # Правая панель - контент
+        # Правая панель — Стек с контентом
         self.content_stack = QStackedWidget()
-        self.content_stack.setStyleSheet("""
-            QStackedWidget {
-                background-color: white;
-            }
-        """)
+        self.content_stack.setStyleSheet("QStackedWidget { background-color: #f8fafc; }")
         content_layout.addWidget(self.content_stack, 1)
 
         main_layout.addWidget(content_widget, 1)
 
-        # Инициализация шагов
+        # Инициализация всех шагов
         self._init_steps()
 
-        # Переход на первый шаг
+        # Загрузка первого шага
         self.go_to_step(0)
 
     def _init_steps(self):
-        """Инициализация всех шагов"""
+        """Инициализация разделов и генераторов элементов"""
         self.steps = []
 
         steps_data = [
-            ("Главное окно", self._create_main_window),
-            ("Добавление абитуриента", self._create_add_applicant),
-            ("Форма - Часть 1", self._create_add_form_part1),
-            ("Форма - Часть 2", self._create_add_form_part2),
-            ("Форма - Часть 3", self._create_add_form_part3),
-            ("Скрытые элементы", self._create_hidden_elements),
-            ("Редактирование", self._create_edit_delete),
-            ("Поиск", self._create_search),
-            ("Статистика", self._create_statistics),
-            ("Импорт/Экспорт", self._create_import_export),
-            ("Работа с планом", self._create_plan_management),
+            ("01. Обзор программы", self._create_main_window),
+            ("02. Добавление абитуриента", self._create_add_applicant),
+            ("03. Форма: Данные абитуриента", self._create_add_form_part1),
+            ("04. Форма: Данные агитатора", self._create_add_form_part2),
+            ("05. Завершение формы", self._create_add_form_part3),
+            ("06. Динамические поля", self._create_hidden_elements),
+            ("07. Права и редактирование", self._create_edit_delete),
+            ("08. Поиск и фильтрация", self._create_search),
+            ("09. Модуль статистики", self._create_statistics),
+            ("10. Импорт и экспорт Excel", self._create_import_export),
+            ("11. План набора", self._create_plan_management),
         ]
 
         if self.role == 'admin':
-            steps_data.append(("Настройки админа", self._create_admin_settings))
+            steps_data.append(("12. Настройки администратора", self._create_admin_settings))
 
         for title, func in steps_data:
             step_widget = QWidget()
@@ -261,55 +313,55 @@ class HelpDialog(QDialog):
             item = QListWidgetItem(title)
             self.nav_list.addItem(item)
 
+    def filter_navigation(self, text):
+        """Фильтрация разделов по поисковому запросу"""
+        text = text.lower().strip()
+        for i in range(self.nav_list.count()):
+            item = self.nav_list.item(i)
+            item.setHidden(text not in item.text().lower())
+
     def on_nav_clicked(self, item):
-        """Обработка клика по навигации"""
         index = self.nav_list.row(item)
         self.go_to_step(index)
 
     def go_to_step(self, index):
-        """Переход к шагу"""
         if index < 0 or index >= len(self.steps):
             return
 
         self.current_step = index
-
         self.nav_list.setCurrentRow(index)
-        self.progress_label.setText(f"{index + 1} из {len(self.steps)}")
+
+        total_steps = len(self.steps)
+        self.progress_label.setText(f"Раздел {index + 1} из {total_steps}")
+        self.progress_bar.setMaximum(total_steps)
+        self.progress_bar.setValue(index + 1)
+
         self.prev_btn.setEnabled(index > 0)
-        self.next_btn.setEnabled(index < len(self.steps) - 1)
+        self.next_btn.setEnabled(index < total_steps - 1)
 
         step_data = self.steps[index]
         widget = step_data['widget']
 
-        # Очищаем виджет полностью
+        # Очистка старого содержимого перед перерисовкой
         self._clear_widget(widget)
 
-        # Создаем новый layout
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Создаем контент
+        # Вызов функции сборки макета
         step_data['func'](layout)
 
         self.content_stack.setCurrentWidget(widget)
 
     def _clear_widget(self, widget):
-        """Полная очистка виджета"""
-        # Удаляем все дочерние виджеты
-        for child in widget.findChildren(QWidget):
-            child.deleteLater()
-
-        # Удаляем layout
         if widget.layout():
             old_layout = widget.layout()
-            # Удаляем все элементы из layout
             while old_layout.count():
                 item = old_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
-            # Удаляем layout
-            old_layout.deleteLater()
+            QWidget().setLayout(old_layout)
 
     def next_step(self):
         if self.current_step < len(self.steps) - 1:
@@ -319,187 +371,205 @@ class HelpDialog(QDialog):
         if self.current_step > 0:
             self.go_to_step(self.current_step - 1)
 
-    # ============ МЕТОДЫ СОЗДАНИЯ КОНТЕНТА ============
+    # ================= СТРУКТУРНЫЕ КОМПОНЕНТЫ РАЗМЕТКИ =================
 
     def _create_scroll_content(self, layout, title, description):
-        """Создание скролл-контента"""
-        # Создаем скролл область
+        """Базовый контейнер прокрутки с заголовком страницы"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-        """)
 
-        # Контейнер для контента
         container = QWidget()
-        container.setStyleSheet("background-color: transparent;")
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(30, 30, 30, 30)
-        container_layout.setSpacing(20)
+        container_layout.setContentsMargins(32, 28, 32, 28)
+        container_layout.setSpacing(16)
 
-        # Заголовок
-        title_widget = QWidget()
-        title_widget_layout = QHBoxLayout(title_widget)
-        title_widget_layout.setContentsMargins(0, 0, 0, 0)
+        # Шапка карточки шага
+        header_box = QHBoxLayout()
+        header_box.setSpacing(12)
 
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(18)
+        title_font.setPointSize(15)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setStyleSheet("color: #1a1a2e;")
-        title_widget_layout.addWidget(title_label)
-        title_widget_layout.addStretch()
+        title_label.setStyleSheet("color: #0f172a;")
+        header_box.addWidget(title_label)
+        header_box.addStretch()
 
-        badge = QLabel("Шаг")
+        badge = QLabel(f"РАЗДЕЛ {self.current_step + 1:02d}")
         badge.setStyleSheet("""
             QLabel {
-                background-color: #6c5ce7;
-                color: white;
-                border-radius: 12px;
-                padding: 4px 12px;
+                background-color: #eff6ff;
+                color: #2563eb;
+                border: 1px solid #bfdbfe;
+                border-radius: 4px;
+                padding: 4px 10px;
                 font-size: 11px;
-                font-weight: bold;
+                font-weight: 700;
+                letter-spacing: 0.5px;
             }
         """)
-        title_widget_layout.addWidget(badge)
-
-        container_layout.addWidget(title_widget)
+        header_box.addWidget(badge)
+        container_layout.addLayout(header_box)
 
         if description:
             desc_label = QLabel(description)
-            desc_label.setStyleSheet("color: #636e72; font-size: 14px;")
+            desc_label.setStyleSheet("color: #475569; font-size: 13px; line-height: 1.5;")
             desc_label.setWordWrap(True)
             container_layout.addWidget(desc_label)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #dfe6e9; max-height: 1px;")
-        container_layout.addWidget(line)
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setStyleSheet("background-color: #e2e8f0; max-height: 1px; border: none;")
+        container_layout.addWidget(divider)
 
-        # Контейнер для элементов
         items_container = QWidget()
         items_layout = QVBoxLayout(items_container)
+        items_layout.setContentsMargins(0, 4, 0, 0)
         items_layout.setSpacing(12)
         container_layout.addWidget(items_container)
 
         container_layout.addStretch()
-
         scroll.setWidget(container)
         layout.addWidget(scroll)
 
         return items_layout
 
-    def _add_action_step(self, parent_layout, number, title, action, location, color="#2ecc71"):
-        """Добавление шага действия"""
-        widget = QWidget()
-        widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: #f0fff4;
-                border-radius: 10px;
-                border: 1px solid #b2dfdb;
-            }}
+    def _add_action_step(self, parent_layout, number, title, action, location):
+        """Интерактивная карточка последовательного шага"""
+        widget = QFrame()
+        widget.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border-radius: 8px;
+                border: 1px solid #e2e8f0;
+            }
+            QFrame:hover {
+                border-color: #cbd5e1;
+            }
         """)
 
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(15, 12, 15, 12)
-        layout.setSpacing(15)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(16)
 
+        # Четкий цифровой индикатор
         num_label = QLabel(str(number))
         num_label.setFixedSize(30, 30)
         num_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        num_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {color};
-                color: white;
+        num_label.setStyleSheet("""
+            QLabel {
+                background-color: #2563eb;
+                color: #ffffff;
                 border-radius: 15px;
-                font-size: 14px;
-                font-weight: bold;
-            }}
+                font-size: 13px;
+                font-weight: 700;
+            }
         """)
         layout.addWidget(num_label)
 
+        # Текстовое описание
         text_widget = QWidget()
         text_layout = QVBoxLayout(text_widget)
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(4)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: bold; color: #2d3436; font-size: 13px;")
+        title_label.setStyleSheet("font-weight: 700; color: #0f172a; font-size: 13px;")
         text_layout.addWidget(title_label)
 
         if action:
             action_label = QLabel(f"Действие: {action}")
-            action_label.setStyleSheet("color: #6c5ce7; font-size: 12px; font-weight: bold;")
+            action_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 600;")
+            action_label.setWordWrap(True)
             text_layout.addWidget(action_label)
 
         if location:
-            location_label = QLabel(f"Где: {location}")
-            location_label.setStyleSheet("color: #636e72; font-size: 12px;")
+            location_label = QLabel(f"Расположение: {location}")
+            location_label.setStyleSheet("color: #64748b; font-size: 11px;")
             text_layout.addWidget(location_label)
 
         layout.addWidget(text_widget, 1)
         parent_layout.addWidget(widget)
 
-    def _add_highlight(self, parent_layout, title, content, color="#fdcb6e"):
-        """Добавление выделенного блока"""
+    def _add_highlight(self, parent_layout, title, content, level="info"):
+        """Информационный блок без значков и эмодзи"""
+        styles = {
+            "tip": {"bg": "#f0fdf4", "border": "#16a34a", "title": "#15803d", "label": "РЕКОМЕНДАЦИЯ"},
+            "info": {"bg": "#eff6ff", "border": "#2563eb", "title": "#1d4ed8", "label": "ИНФОРМАЦИЯ"},
+            "warning": {"bg": "#fffbeb", "border": "#d97706", "title": "#b45309", "label": "ВНИМАНИЕ"},
+            "danger": {"bg": "#fef2f2", "border": "#dc2626", "title": "#b91c1c", "label": "ОГРАНИЧЕНИЕ"},
+        }
+        cfg = styles.get(level, styles["info"])
+
         widget = QFrame()
         widget.setStyleSheet(f"""
             QFrame {{
-                background-color: #fff8e7;
-                border-left: 4px solid {color};
-                border-radius: 8px;
-                padding: 12px;
+                background-color: {cfg['bg']};
+                border-left: 4px solid {cfg['border']};
+                border-radius: 6px;
             }}
         """)
 
         layout = QVBoxLayout(widget)
-        layout.setSpacing(6)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(4)
+
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
+
+        badge_label = QLabel(cfg['label'])
+        badge_label.setStyleSheet(f"""
+            color: {cfg['title']};
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        """)
+        header_layout.addWidget(badge_label)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: #2d3436; font-weight: bold; font-size: 13px;")
-        layout.addWidget(title_label)
+        title_label.setStyleSheet(f"color: {cfg['title']}; font-weight: 700; font-size: 12px;")
+        header_layout.addWidget(title_label, 1)
+
+        layout.addLayout(header_layout)
 
         content_label = QLabel(content)
-        content_label.setStyleSheet("color: #636e72; font-size: 12px;")
+        content_label.setStyleSheet("color: #334155; font-size: 12px; line-height: 1.4;")
         content_label.setWordWrap(True)
         layout.addWidget(content_label)
 
         parent_layout.addWidget(widget)
 
     def _add_info_grid(self, parent_layout, items, cols=2):
-        """Добавление сетки информации"""
+        """Плиточная сетка справочной информации"""
         grid_widget = QWidget()
         grid_layout = QGridLayout(grid_widget)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
         grid_layout.setSpacing(10)
 
         for i, (title, value) in enumerate(items):
             row = i // cols
             col = i % cols
 
-            item_widget = QWidget()
+            item_widget = QFrame()
             item_widget.setStyleSheet("""
-                QWidget {
-                    background-color: white;
-                    border-radius: 8px;
-                    border: 1px solid #e9ecef;
+                QFrame {
+                    background-color: #ffffff;
+                    border-radius: 6px;
+                    border: 1px solid #e2e8f0;
                 }
             """)
 
             item_layout = QVBoxLayout(item_widget)
             item_layout.setContentsMargins(12, 10, 12, 10)
-            item_layout.setSpacing(4)
+            item_layout.setSpacing(3)
 
             title_label = QLabel(title)
-            title_label.setStyleSheet(
-                "color: #b2bec3; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;")
+            title_label.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase;")
             item_layout.addWidget(title_label)
 
             value_label = QLabel(value)
-            value_label.setStyleSheet("color: #2d3436; font-size: 13px; font-weight: 500;")
+            value_label.setStyleSheet("color: #0f172a; font-size: 12px; font-weight: 600;")
             value_label.setWordWrap(True)
             item_layout.addWidget(value_label)
 
@@ -507,418 +577,189 @@ class HelpDialog(QDialog):
 
         parent_layout.addWidget(grid_widget)
 
-    # ============ КОНТЕНТ ШАГОВ ============
+    def _add_section_header(self, parent_layout, title):
+        """Чистый подзаголовок раздела"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 10, 0, 4)
+
+        label = QLabel(title)
+        label.setStyleSheet("color: #0f172a; font-weight: 700; font-size: 13px;")
+        layout.addWidget(label)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("background-color: #cbd5e1; max-height: 1px; border: none;")
+        layout.addWidget(line, 1)
+
+        parent_layout.addWidget(widget)
+
+    # ================= КОНТЕНТ РАЗДЕЛОВ СПРАВКИ =================
 
     def _create_main_window(self, layout):
-        items = self._create_scroll_content(layout, "Добро пожаловать в AgiAnalytics",
-                                            "Ваш помощник в работе с абитуриентами")
+        items = self._create_scroll_content(layout, "Обзор интерфейса программы",
+                                            "AgiAnalytics предназначен для централизованного учета, анализа и контроля результатов агитационной работы.")
 
-        self._add_action_step(items, 1, "Панель инструментов вверху",
-                              "Кнопки: Добавить, Редактировать, Удалить, Импорт, Экспорт, Помощь, Выход",
-                              "Верхняя часть окна")
+        self._add_action_step(items, 1, "Панель инструментов",
+                              "Основные функции: Добавление, Редактирование, Удаление, Поиск, Экспорт и Импорт",
+                              "Верхняя область основного окна")
 
-        self._add_action_step(items, 2, "Вкладки",
-                              "Кликните по названию вкладки: 'Данные абитуриентов', 'Статистика'",
-                              "Под панелью инструментов")
+        self._add_action_step(items, 2, "Вкладки разделов",
+                              "Переключение между Реестром абитуриентов, Сводной статистикой и Настройками",
+                              "Панель навигации под верхней строкой")
 
-        self._add_action_step(items, 3, "Таблица с данными",
-                              "Кликните по строке для выделения",
-                              "Центральная область вкладки 'Данные абитуриентов'")
+        self._add_action_step(items, 3, "Реестр абитуриентов",
+                              "Просмотр записей в виде таблицы. Поддерживает сортировку по столбцам и выбор строки",
+                              "Центральная часть рабочей области")
 
-        self._add_highlight(items, "Совет",
-                            "Панель инструментов содержит все основные действия. Статусная строка внизу показывает информацию о текущем пользователе.")
+        self._add_highlight(items, "Статус подключения и учетная запись",
+                            "В нижней строке состояния отображаются текущий пользователь, назначенное подразделение и системные уведомления.", "info")
 
     def _create_add_applicant(self, layout):
-        items = self._create_scroll_content(layout, "Добавление абитуриента", "Пошаговая инструкция")
+        items = self._create_scroll_content(layout, "Добавление абитуриента",
+                                            "Порядок внесения новых персональных данных в базу.")
 
-        self._add_action_step(items, 1, "Нажмите кнопку 'Добавить'",
-                              "Кликните по кнопке с иконкой документа на панели инструментов",
-                              "Панель инструментов (первая кнопка слева)")
+        self._add_action_step(items, 1, "Открытие диалога ввода",
+                              "Нажмите кнопку 'Добавить' на панели инструментов",
+                              "Панель инструментов")
 
-        self._add_action_step(items, 2, "Заполните форму",
-                              "Введите данные абитуриента и агитатора",
-                              "Диалоговое окно 'Добавить абитуриента'")
+        self._add_action_step(items, 2, "Заполнение обязательных полей",
+                              "Заполните поля, отмеченные символом звёздочки (*)",
+                              "Окно формы ввода")
 
-        self._add_action_step(items, 3, "Нажмите 'Сохранить'",
-                              "Кликните по зеленой кнопке 'Сохранить' внизу диалога",
-                              "Нижняя часть диалогового окна")
+        self._add_action_step(items, 3, "Сохранение записи",
+                              "Нажмите кнопку 'Сохранить' для валидации и записи данных в БД",
+                              "Нижняя панель формы ввода")
 
-        self._add_highlight(items, "Важно",
-                            "Все поля с пометкой * обязательны для заполнения. Нельзя добавить абитуриента с уже существующим ФИО.")
+        self._add_highlight(items, "Автоматический контроль дубликатов",
+                            "Система сверяет ФИО и дату рождения. Внесение идентичных записей блокируется во избежание дублирования.", "warning")
 
     def _create_add_form_part1(self, layout):
-        items = self._create_scroll_content(layout, "Форма добавления - Блок 1", "Информация об абитуриенте")
+        items = self._create_scroll_content(layout, "Форма ввода: Данные абитуриента",
+                                            "Описание параметров абитуриента.")
 
-        self._add_action_step(items, 1, "ФИО абитуриента *",
-                              "Введите полное имя в текстовое поле",
-                              "Первое поле в блоке 'Информация об абитуриенте'")
-
-        self._add_action_step(items, 2, "Субъект РФ *",
-                              "Нажмите на стрелку и выберите регион из списка",
-                              "Второе поле - выпадающий список")
-
-        self._add_action_step(items, 3, "Категория *",
-                              "Нажмите на стрелку и выберите категорию",
-                              "Поле 'Категория'")
-
-        self._add_action_step(items, 4, "Телефон *",
-                              "Введите номер (маска подставится автоматически)",
-                              "Поле 'Телефон' с маской ввода")
+        self._add_action_step(items, 1, "ФИО абитуриента (*)", "Укажите полностью Фамилию, Имя и Отчество", "Первая строка формы")
+        self._add_action_step(items, 2, "Регион РФ (*)", "Выберите субъект из выпадающего списка", "Выпадающий список")
+        self._add_action_step(items, 3, "Контактный телефон (*)", "Введите номер с кодом региона", "Поле с автоформатом")
 
         self._add_info_grid(items, [
-            ("Населенный пункт", "Введите город или село"),
-            ("Образование", "Выберите из выпадающего списка"),
-            ("Статус *", "Выберите 'Поступает' или 'Отказывается'"),
-            ("Документы", "Выберите статус документов")
+            ("Категория (*)", "Мужчина / Женщина / Военнослужащий"),
+            ("Населенный пункт", "Наименование города, села или района"),
+            ("Уровень образования", "Среднее общее, СПО, Высшее, СВУ"),
+            ("Планирование поступления", "Поступает или Отказывается"),
+            ("Статус документов", "Состояние дела (ВК, ОК, ВА ВКО)")
         ])
 
     def _create_add_form_part2(self, layout):
-        items = self._create_scroll_content(layout, "Форма добавления - Блок 2", "Информация об агитаторе")
+        items = self._create_scroll_content(layout, "Форма ввода: Данные агитатора",
+                                            "Фиксация сведений о лице, проводившем агитацию.")
 
-        self._add_action_step(items, 1, "Тип агитатора",
-                              "Нажмите на чекбокс 'Агитатор - курсант' или 'Агитатор - офицер/военнослужащий'",
-                              "Раздел 'Информация об агитаторе'")
+        self._add_action_step(items, 1, "Выбор категории агитатора",
+                              "Установите переключатель 'Курсант' или 'Офицер / Военнослужащий'",
+                              "Блок сведений об агитаторе")
 
-        self._add_action_step(items, 2, "Подразделение *",
-                              "Нажмите на стрелку и выберите подразделение из списка",
-                              "Поле 'Подразделение' - выпадающий список")
+        self._add_action_step(items, 2, "Подразделение (*)",
+                              "Выберите соответствующий факультет или кафедру",
+                              "Выпадающий список 'Подразделение'")
 
-        self._add_action_step(items, 3, "ФИО агитатора *",
-                              "Введите полное имя агитатора",
-                              "Поле 'ФИО агитатора'")
+        self._add_action_step(items, 3, "ФИО агитатора (*)",
+                              "Укажите фамилию и инициалы должностного лица",
+                              "Поле ввода ФИО")
 
-        self._add_highlight(items, "Для курсанта",
-                            "После выбора чекбокса 'Агитатор - курсант' появятся поля: Курс (выберите из списка) и Группа (введите номер)")
-        self._add_highlight(items, "Для офицера",
-                            "После выбора чекбокса 'Агитатор - офицер/военнослужащий' появится поле: Звание (выберите из списка)")
+        self._add_highlight(items, "Агитатор — Курсант", "При выборе курсанта обязательно указываются Номер курса (1–5) и Номер учебной группы.", "tip")
+        self._add_highlight(items, "Агитатор — Офицер", "При выборе офицера указывается воинское звание из утвержденного справочника.", "tip")
 
     def _create_add_form_part3(self, layout):
-        items = self._create_scroll_content(layout, "Форма добавления - Блок 3",
-                                            "Дополнительная информация и сохранение")
+        items = self._create_scroll_content(layout, "Проверка и фиксация данных",
+                                            "Завершение работы с формой.")
 
-        self._add_action_step(items, 1, "Примечания",
-                              "Введите комментарии в текстовое поле",
-                              "Блок 'Дополнительная информация'")
+        self._add_action_step(items, 1, "Дополнительные примечания", "Внесите индивидуальные пометки при необходимости", "Текстовое поле примечаний")
+        self._add_action_step(items, 2, "Сохранить запись", "Нажмите кнопку 'Сохранить' для фиксации в базе данных", "Нижняя панель")
 
-        self._add_action_step(items, 2, "Сохранение",
-                              "Нажмите зеленую кнопку 'Сохранить'",
-                              "Нижняя часть диалогового окна")
-
-        self._add_action_step(items, 3, "Отмена",
-                              "Нажмите серую кнопку 'Отмена' для закрытия без сохранения",
-                              "Нижняя часть диалогового окна")
-
-        self._add_highlight(items, "Что происходит после сохранения",
-                            "1. Проверка всех обязательных полей\n2. Проверка дубликатов по ФИО\n3. Добавление в базу данных\n4. Обновление таблицы и статистики")
+        self._add_highlight(items, "Алгоритм валидации",
+                            "При сохранении проверяются: полнота заполнения обязательных полей, корректность структуры телефона и отсутствие совпадений в БД.", "info")
 
     def _create_hidden_elements(self, layout):
-        items = self._create_scroll_content(layout, "Скрытые элементы формы",
-                                            "Обратите внимание на дополнительные возможности")
+        items = self._create_scroll_content(layout, "Динамическое поведение формы",
+                                            "Автоматическая перестройка полей в зависимости от условий.")
 
-        self._add_action_step(items, 1, "Чекбокс 'Агитатор - курсант'",
-                              "Нажмите на чекбокс для активации полей 'Курс' и 'Группа'",
-                              "Раздел 'Информация об агитаторе'")
+        self._add_action_step(items, 1, "Адаптация полей агитатора",
+                              "Состав полей меняется мгновенно при переключении статуса (Курсант / Офицер)",
+                              "Форма ввода")
 
-        self._add_action_step(items, 2, "Чекбокс 'Агитатор - офицер/военнослужащий'",
-                              "Нажмите на чекбокс для активации поля 'Звание'",
-                              "Раздел 'Информация об агитаторе'")
+        self._add_action_step(items, 2, "Защищенные справочники",
+                              "Выбор субъектов РФ и подразделений ограничен нормативным перечнем",
+                              "Выпадающие списки")
 
-        self._add_action_step(items, 3, "Выбор подразделения",
-                              "Нажмите на стрелку и выберите из списка. Вручную ввести нельзя!",
-                              "Поле 'Подразделение'")
-
-        self._add_action_step(items, 4, "Выбор субъекта РФ",
-                              "Нажмите на стрелку и выберите регион из списка. Вручную ввести нельзя!",
-                              "Поле 'Субъект РФ'")
-
-        self._add_highlight(items, "Подсказка",
-                            "Курсант - студент, ведущий агитацию. Офицер/военнослужащий - действующий военнослужащий. Правильный выбор важен для статистики.")
+        self._add_highlight(items, "Точность аналитики", "Корректный выбор категории агитатора критически важен для формирования отчетов по подразделениям.", "warning")
 
     def _create_edit_delete(self, layout):
-        items = self._create_scroll_content(layout, "Редактирование и удаление", "Управление существующими записями")
+        items = self._create_scroll_content(layout, "Управление записями",
+                                            "Редактирование и удаление сведений.")
 
-        self._add_action_step(items, 1, "Выделите запись",
-                              "Кликните по строке в таблице",
-                              "Таблица на вкладке 'Данные абитуриентов'")
+        self._add_action_step(items, 1, "Выбор строки", "Кликните по нужной записи в таблице", "Основная таблица")
+        self._add_action_step(items, 2, "Редактирование", "Нажмите кнопку 'Редактировать' на верхней панели", "Панель инструментов")
+        self._add_action_step(items, 3, "Удаление", "Нажмите кнопку 'Удалить' (требуется подтверждение)", "Панель инструментов")
 
-        self._add_action_step(items, 2, "Редактирование",
-                              "Нажмите кнопку 'Редактировать' (иконка карандаша)",
-                              "Панель инструментов (вторая кнопка)")
-
-        self._add_action_step(items, 3, "Удаление",
-                              "Нажмите кнопку 'Удалить' (иконка корзины)",
-                              "Панель инструментов (третья кнопка)")
-
-        self._add_highlight(items, "Права доступа",
-                            "Вы можете редактировать и удалять только свои записи. Администратор имеет доступ ко всем записям.")
+        self._add_highlight(items, "Разграничение прав доступа",
+                            "Пользователи с базовыми правами могут изменять только созданные ими записи. Администраторы обладают полным доступом ко всей базе данных.", "danger")
 
     def _create_search(self, layout):
-        items = self._create_scroll_content(layout, "Поиск абитуриентов", "Как быстро найти нужные записи")
+        items = self._create_scroll_content(layout, "Поиск и фильтрация",
+                                            "Быстрый поиск информации в базе данных.")
 
-        self._add_action_step(items, 1, "Обычный поиск",
-                              "Введите текст в поле 'Поиск'",
-                              "Правая часть панели инструментов")
+        self._add_action_step(items, 1, "Быстрый поиск", "Введите ФИО, город или телефон в поисковую строку", "Верхняя правая область")
+        self._add_action_step(items, 2, "Фильтрация по курсу", "Выберите курс в выпадающем фильтре", "Панель фильтрации")
+        self._add_action_step(items, 3, "Расширенный фильтр", "Используйте кнопку 'Расширенный поиск' для комбинированного отбора", "Рядом со строкой поиска")
 
-        self._add_action_step(items, 2, "Расширенный поиск",
-                              "Нажмите кнопку 'Расширенный поиск' (фиолетовая)",
-                              "Рядом с полем поиска")
-
-        self._add_action_step(items, 3, "Сброс фильтров",
-                              "Нажмите кнопку 'Сбросить фильтры' (оранжевая)",
-                              "Рядом с кнопкой 'Расширенный поиск'")
-
-        self._add_highlight(items, "Возможности расширенного поиска",
-                            "Поиск по ФИО, региону, категории, статусу, ФИО агитатора, подразделению, курсу")
+        self._add_highlight(items, "Мгновенный отклик", "Фильтрация таблицы выполняется автоматически при вводе символов.", "tip")
 
     def _create_statistics(self, layout):
-        items = self._create_scroll_content(layout, "Статистика", "Анализ данных по подразделениям")
+        items = self._create_scroll_content(layout, "Модуль аналитики и отчетов", "Анализ выполнения целевых показателей.")
 
-        self._add_action_step(items, 1, "Перейдите на вкладку 'Статистика'",
-                              "Кликните по названию вкладки",
-                              "Верхняя часть окна (вторая вкладка)")
-
-        self._add_action_step(items, 2, "Просмотрите общую сводку",
-                              "Вверху показаны общие показатели",
-                              "Верхняя часть вкладки 'Статистика'")
-
-        self._add_action_step(items, 3, "Раскройте карточку подразделения",
-                              "Нажмите на стрелку (▶) в карточке",
-                              "Карточка подразделения в центральной части")
-
-        self._add_action_step(items, 4, "Статистика по регионам",
-                              "Нажмите кнопку 'Статистика по регионам'",
-                              "Внутри карточки подразделения (фиолетовая кнопка)")
+        self._add_action_step(items, 1, "Переход в модуль", "Откройте вкладку 'Статистика'", "Главная панель навигации")
+        self._add_action_step(items, 2, "Параметры фильтрации", "Задайте курс или категорию кандидатов", "Верхняя панель статистики")
+        self._add_action_step(items, 3, "Детализация подразделений", "Раскройте карточку подразделения для детализации", "Сводная таблица")
 
         self._add_info_grid(items, [
-            ("В карточке", "План, Всего, Отобраны, % выполнения"),
-            ("Внутри карточки", "План по категориям, Отобраны, Статусы документов")
+            ("Метрики карточки", "Установленный план, Фактически привлечено, Выполнение (%)"),
+            ("Анализ регионов", "Распределение кандидатов по закрепленным субъектам РФ")
         ])
 
     def _create_import_export(self, layout):
-        items = self._create_scroll_content(layout, "Импорт и экспорт данных", "Работа с Excel файлами")
+        items = self._create_scroll_content(layout, "Импорт и Экспорт файлов Excel", "Пакетная обработка данных.")
 
-        self._add_action_step(items, 1, "Импорт из Excel",
-                              "Нажмите кнопку 'Импорт из Excel'",
-                              "Панель инструментов (кнопка с иконкой импорта)")
+        self._add_action_step(items, 1, "Импорт реестра", "Нажмите 'Импорт' -> Выберите файл .xlsx -> Настройте сопоставление столбцов", "Панель инструментов")
+        self._add_action_step(items, 2, "Экспорт отчета", "Нажмите 'Экспорт' -> Укажите каталог для сохранения файла", "Панель инструментов")
 
-        self._add_action_step(items, 2, "Экспорт данных",
-                              "Нажмите кнопку 'Экспорт'",
-                              "Панель инструментов (кнопка с иконкой экспорта)")
-
-        self._add_highlight(items, "Шаги импорта",
-                            "1. Выберите файл\n2. Укажите пароль\n3. Выберите листы\n4. Настройте сопоставление\n5. Нажмите 'Начать импорт'")
-        self._add_highlight(items, "Совет",
-                            "Обязательные поля: ФИО абитуриента и ФИО агитатора. Для каждого листа своё сопоставление.")
+        self._add_highlight(items, "Требования к файлам",
+                            "Мастер импорта поддерживает файлы с защитой и выбором листов. Обязательным является сопоставление колонок ФИО.", "info")
 
     def _create_plan_management(self, layout):
-        items = self._create_scroll_content(layout, "Управление планом набора",
-                                            "Редактирование плана для подразделений")
+        items = self._create_scroll_content(layout, "Управление плановыми показателями", "Корректировка планов для подразделений.")
 
-        self._add_action_step(items, 1, "Найдите подразделение",
-                              "Перейдите на вкладку 'Статистика'",
-                              "Вкладка 'Статистика' - карточки подразделений")
-
-        self._add_action_step(items, 2, "Раскройте карточку",
-                              "Нажмите на стрелку (▶)",
-                              "В карточке подразделения")
-
-        self._add_action_step(items, 3, "Нажмите 'Редактировать план'",
-                              "Кликните по оранжевой кнопке",
-                              "Внутри раскрытой карточки подразделения")
-
-        self._add_highlight(items, "Кто может редактировать",
-                            "Администратор - любой план. Начальник подразделения - только свой план. Пользователь - не может редактировать.")
+        self._add_action_step(items, 1, "Выбор подразделения", "Найдите требуемое подразделение на вкладке 'Статистика'", "Раздел статистики")
+        self._add_action_step(items, 2, "Редактирование плана", "Нажмите 'Изменить план' внутри карточки подразделения", "Карточка подразделения")
 
         self._add_info_grid(items, [
-            ("План по мужчинам (М)", "Количество"),
-            ("План по женщинам (Ж)", "Количество"),
-            ("План по военнослужащим (в/сл)", "Количество")
+            ("План: Категория М", "Целевой показатель для кандидатов-мужчин"),
+            ("План: Категория Ж", "Целевой показатель для кандидатов-женщин"),
+            ("План: Военнослужащие", "Целевой показатель для лиц, проходящих службу")
         ])
 
     def _create_admin_settings(self, layout):
-        items = self._create_scroll_content(layout, "Настройки администратора", "Управление системой - полный контроль")
+        items = self._create_scroll_content(layout, "Администрирование системы",
+                                            "Раздел настроек для пользователей с ролью 'Admin'.")
 
-        # Переход к настройкам
-        self._add_action_step(items, 1, "Перейдите на вкладку 'Настройки (админ)'",
-                              "Кликните по названию вкладки (доступна только администраторам)",
-                              "Верхняя часть окна (третья вкладка)")
+        self._add_action_step(items, 1, "Переход в настройки", "Откройте вкладку 'Настройки (Администратор)'", "Панель навигации")
 
-        self._add_highlight(items, "Доступные разделы",
-                            "Внутри вкладки 'Настройки (админ)' доступны следующие разделы:\n"
-                            "1. Пользователи - управление учетными записями\n"
-                            "2. Подразделения - структура организации\n"
-                            "3. Регионы - справочник субъектов РФ\n"
-                            "4. Образование - типы образования\n"
-                            "5. Статусы документов - статусы документов\n"
-                            "6. Расписание - рабочие дни\n"
-                            "7. Ответственные за регионы - назначение регионов подразделениям")
-
-        # ===== РАЗДЕЛ 1: ПОЛЬЗОВАТЕЛИ =====
         self._add_section_header(items, "1. Управление пользователями")
+        self._add_action_step(items, "1.1", "Учетные записи", "Ведение списка пользователей, сброс паролей и назначение ролей", "Вкладка 'Пользователи'")
+        self._add_action_step(items, "1.2", "Права доступа", "Настройка доступа пользователей к конкретным подразделениям", "Вкладка 'Права доступа'")
 
-        self._add_action_step(items, "1.1", "Добавить пользователя",
-                              "Нажмите кнопку 'Добавить пользователя' (зеленая кнопка с плюсом)",
-                              "Вкладка 'Пользователи' в настройках")
-
-        self._add_action_step(items, "1.2", "Редактировать пользователя",
-                              "Выделите строку с пользователем и нажмите 'Редактировать' (синяя кнопка)",
-                              "Вкладка 'Пользователи' - таблица пользователей")
-
-        self._add_action_step(items, "1.3", "Удалить пользователя",
-                              "Выделите строку с пользователем и нажмите 'Удалить' (красная кнопка)",
-                              "Вкладка 'Пользователи' - таблица пользователей")
-
-        self._add_highlight(items, "Поля при создании пользователя",
-                            "• Логин * - уникальное имя для входа\n"
-                            "• Пароль * - пароль для входа\n"
-                            "• ФИО * - полное имя пользователя\n"
-                            "• Роль - 'Администратор' или 'Пользователь'\n"
-                            "• Подразделение - к какому подразделению привязан\n"
-                            "• Должность - должность пользователя\n"
-                            "• Звание - воинское звание (если есть)\n"
-                            "• Начальник подразделения - чекбокс для назначения начальником\n"
-                            "• Права доступа - выбор подразделений для просмотра")
-
-        # ===== РАЗДЕЛ 2: ПОДРАЗДЕЛЕНИЯ =====
-        self._add_section_header(items, "2. Управление подразделениями")
-
-        self._add_action_step(items, "2.1", "Добавить подразделение",
-                              "Нажмите кнопку 'Добавить подразделение' (зеленая кнопка)",
-                              "Вкладка 'Подразделения' в настройках")
-
-        self._add_action_step(items, "2.2", "Редактировать подразделение",
-                              "Выделите строку и нажмите 'Редактировать' (синяя кнопка)",
-                              "Вкладка 'Подразделения' - таблица подразделений")
-
-        self._add_action_step(items, "2.3", "Удалить подразделение",
-                              "Выделите строку и нажмите 'Удалить' (красная кнопка)",
-                              "Вкладка 'Подразделения' - таблица подразделений")
-
-        self._add_highlight(items, "Типы подразделений",
-                            "• Факультет - основное подразделение (например, 'Факультет 1')\n"
-                            "• Кафедра - подразделение внутри факультета\n"
-                            "• Группа - группа внутри кафедры (можно выбрать родительское подразделение)\n"
-                            "• Начальник подразделения - назначается из списка пользователей")
-
-        # ===== РАЗДЕЛ 3: РЕГИОНЫ =====
-        self._add_section_header(items, "3. Управление регионами")
-
-        self._add_action_step(items, "3.1", "Добавить регион",
-                              "Нажмите кнопку 'Добавить регион' (зеленая кнопка)",
-                              "Вкладка 'Регионы' в настройках")
-
-        self._add_action_step(items, "3.2", "Удалить регион",
-                              "Выделите регион в списке и нажмите 'Удалить регион' (красная кнопка)",
-                              "Вкладка 'Регионы' - список регионов")
-
-        self._add_highlight(items, "Назначение регионов подразделениям",
-                            "Перейдите на вкладку 'Ответственные за регионы'.\n"
-                            "Выберите подразделение и нажмите 'Добавить регион' для назначения.\n"
-                            "Регион будет закреплен за подразделением для сбора статистики.")
-
-        # ===== РАЗДЕЛ 4: ОБРАЗОВАНИЕ =====
-        self._add_section_header(items, "4. Управление образованием")
-
-        self._add_action_step(items, "4.1", "Добавить тип образования",
-                              "Нажмите кнопку 'Добавить' (зеленая кнопка)",
-                              "Вкладка 'Образование' в настройках")
-
-        self._add_action_step(items, "4.2", "Удалить тип образования",
-                              "Выделите тип в списке и нажмите 'Удалить' (красная кнопка)",
-                              "Вкладка 'Образование' - список типов")
-
-        self._add_highlight(items, "Типы образования по умолчанию",
-                            "• СОШ - средняя общеобразовательная школа\n"
-                            "• СПО - среднее профессиональное образование\n"
-                            "• СВУ - суворовское военное училище\n"
-                            "• ПКУ - президентское кадетское училище\n"
-                            "• КК - кадетский корпус")
-
-        # ===== РАЗДЕЛ 5: СТАТУСЫ ДОКУМЕНТОВ =====
-        self._add_section_header(items, "5. Управление статусами документов")
-
-        self._add_action_step(items, "5.1", "Добавить статус документов",
-                              "Нажмите кнопку 'Добавить' (зеленая кнопка)",
-                              "Вкладка 'Статусы документов' в настройках")
-
-        self._add_action_step(items, "5.2", "Удалить статус документов",
-                              "Выделите статус в списке и нажмите 'Удалить' (красная кнопка)",
-                              "Вкладка 'Статусы документов' - список статусов")
-
-        self._add_highlight(items, "Статусы документов по умолчанию",
-                            "• ВК - документы в военкомате\n"
-                            "• ОК - документы в отделе кадров\n"
-                            "• ВА ВКО - документы в военной академии")
-
-        # ===== РАЗДЕЛ 6: РАСПИСАНИЕ =====
-        self._add_section_header(items, "6. Настройка расписания")
-
-        self._add_action_step(items, "6.1", "Выбрать рабочие дни",
-                              "Отметьте чекбоксы для дней, когда разрешено добавлять записи",
-                              "Вкладка 'Расписание' в настройках")
-
-        self._add_action_step(items, "6.2", "Сохранить настройки",
-                              "Нажмите кнопку 'Сохранить настройки' (зеленая кнопка)",
-                              "Вкладка 'Расписание' - внизу")
-
-        self._add_highlight(items, "Назначение расписания",
-                            "В выбранные рабочие дни пользователи могут добавлять новых абитуриентов.\n"
-                            "В выходные дни добавление записей будет запрещено.\n"
-                            "По умолчанию: понедельник - пятница (рабочие дни).")
-
-        # ===== РАЗДЕЛ 7: ОТВЕТСТВЕННЫЕ ЗА РЕГИОНЫ =====
-        self._add_section_header(items, "7. Ответственные за регионы")
-
-        self._add_action_step(items, "7.1", "Выбрать подразделение",
-                              "Выберите подразделение из выпадающего списка",
-                              "Вкладка 'Ответственные за регионы'")
-
-        self._add_action_step(items, "7.2", "Добавить регион подразделению",
-                              "Нажмите кнопку 'Добавить регион' и выберите регион из списка",
-                              "Вкладка 'Ответственные за регионы'")
-
-        self._add_action_step(items, "7.3", "Удалить регион у подразделения",
-                              "Выберите регион в списке и нажмите 'Удалить регион'",
-                              "Вкладка 'Ответственные за регионы' - список регионов")
-
-        self._add_highlight(items, "Назначение",
-                            "Закрепление регионов за подразделениями позволяет:\n"
-                            "• Отслеживать эффективность работы в конкретных регионах\n"
-                            "• Анализировать статистику по регионам для каждого подразделения\n"
-                            "• Выявлять наиболее успешные регионы для агитации")
-
-        # Итоговая информация
-        self._add_section_header(items, "Важная информация")
-        self._add_highlight(items, "Права доступа",
-                            "• Администратор - полный доступ ко всем функциям системы\n"
-                            "• Начальник подразделения - управление своим подразделением\n"
-                            "• Пользователь - работа с абитуриентами (свои записи)")
-
-        self._add_highlight(items, "Советы администратору",
-                            "1. Регулярно проверяйте список пользователей и их права\n"
-                            "2. Назначайте начальников подразделений для распределения ответственности\n"
-                            "3. Поддерживайте справочники в актуальном состоянии\n"
-                            "4. Настраивайте расписание в соответствии с рабочими днями\n"
-                            "5. Закрепляйте регионы за подразделениями для точной статистики")
-
-    def _add_section_header(self, parent_layout, title):
-        """Добавление заголовка раздела"""
-        widget = QWidget()
-        widget.setStyleSheet("""
-            QWidget {
-                background-color: #f0edff;
-                border-radius: 8px;
-                padding: 8px;
-                margin-top: 10px;
-            }
-        """)
-
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        label = QLabel(title)
-        label.setStyleSheet("color: #6c5ce7; font-weight: bold; font-size: 14px;")
-        layout.addWidget(label)
-        layout.addStretch()
-
-        parent_layout.addWidget(widget)
+        self._add_section_header(items, "2. Ведение системных справочников")
+        self._add_highlight(items, "Управляемые справочники",
+                            "• Структура подразделений (Факультеты, Кафедры, Учебные группы)\n"
+                            "• Закрепление регионов за подразделениями\n"
+                            "• Справочник уровней образования и статусов документов\n"
+                            "• График разрешенных периодов внесения данных", "tip")
